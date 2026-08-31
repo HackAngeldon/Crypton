@@ -81,7 +81,7 @@ export function Profile() {
         <Field label="Full name">
           <TextInput value={name} onChange={(e) => setName(e.target.value)} />
         </Field>
-        <p className="mt-2 text-xs text-content-faint">Email address changes require support in this demo.</p>
+        <p className="mt-2 text-xs text-content-faint">Email address changes require contacting support.</p>
       </Sheet>
     </div>
   )

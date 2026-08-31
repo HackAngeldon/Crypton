@@ -1,7 +1,7 @@
 import { create } from 'zustand'
 import type { Announcement, CoinId, Tx, User, Wallet } from '@/types'
 import type { Session } from '@/lib/mockApi'
-import { api, resetDb, getDb } from '@/lib/mockApi'
+import { api, getDb } from '@/lib/mockApi'
 import { COIN_CATALOG } from '@/data/coins'
 import { usePriceFeed } from '@/lib/priceFeed'
 
@@ -59,8 +59,6 @@ interface AppState {
   adminAnnounce: (text: string, severity: Announcement['severity']) => Promise<void>
   adminClearAnnounce: (id: string) => Promise<void>
   adminAddFiat: (userId: string, amount: number) => Promise<void>
-
-  resetAll: () => void
 }
 
 export const useApp = create<AppState>((set, get) => {
@@ -255,15 +253,6 @@ export const useApp = create<AppState>((set, get) => {
       if (get().adminWallet && userId === get().adminWallet!.userId) {
         set({ adminWallet: await api.adminGetWallet(userId) })
       }
-    },
-
-    resetAll: () => {
-      resetDb()
-      usePriceFeed.getState().stop()
-      set({
-        session: null, user: null, wallet: null, txs: [], announcements: [], hiddenCoins: [], spreadPct: 0.4,
-        adminUsers: [], adminWallet: null, ready: true,
-      })
     },
   }
 })

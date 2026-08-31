@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
-import { ShieldCheck, Fingerprint, ArrowLeft } from 'lucide-react'
+import { ShieldCheck, ArrowLeft } from 'lucide-react'
 import { useApp } from '@/store/app'
 import { api } from '@/lib/mockApi'
 import { LogoMark, Wordmark } from '@/components/ui/Logo'
@@ -74,7 +74,7 @@ export function Onboarding() {
       {step === 'register' && (
         <AuthForm
           title="Create your wallet"
-          subtitle="A non-custodial demo wallet. Your keys, your coins."
+          subtitle="A non-custodial wallet. Your keys, your coins."
           onBack={() => setStep('welcome')}
           footer={
             <>
@@ -171,24 +171,6 @@ function Welcome({ onRegister, onLogin }: { onRegister: () => void; onLogin: () 
           I already have a wallet
         </Button>
       </div>
-
-      <div className="mt-12 w-full rounded-2xl border border-hairline bg-surface p-4">
-        <p className="flex items-center gap-2 text-2xs font-semibold uppercase tracking-wider text-content-faint">
-          <Fingerprint size={13} /> Demo credentials
-        </p>
-        <div className="mt-3 space-y-2 text-xs text-content-mute">
-          <p>
-            <span className="font-semibold text-content-mute">User:</span> alex@crypton.app · PIN 1234
-          </p>
-          <p>
-            <span className="font-semibold text-content-mute">Admin:</span> admin@crypton.app · PIN 000000
-          </p>
-        </div>
-      </div>
-
-      <p className="mt-8 mb-6 text-center text-2xs text-content-faint">
-        Crypton is a mock wallet for demonstration. No real funds are involved.
-      </p>
     </div>
   )
 }

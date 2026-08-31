@@ -84,7 +84,7 @@ export function Dashboard() {
           <Wordmark size={20} />
           <span className={`flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider ${live ? 'bg-up/10 text-up' : 'bg-warn/10 text-warn'}`}>
             <span className={`h-1.5 w-1.5 rounded-full ${live ? 'bg-up animate-pulse-soft' : 'bg-warn animate-pulse-soft'}`} />
-            {live ? 'Live' : 'Simulated'}
+            {live ? 'Live' : 'Offline estimates'}
           </span>
         </div>
         <button onClick={() => nav('/profile')} className="press rounded-full border border-hairlinestrong">

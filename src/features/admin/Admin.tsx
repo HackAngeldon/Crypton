@@ -147,7 +147,7 @@ function Overview({ users, frozenCount, aum, txsCount, live, announcements }: {
         </span>
         <span className={`flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[10px] font-bold uppercase ${live ? 'bg-up/10 text-up' : 'bg-warn/10 text-warn'}`}>
           <span className={`h-1.5 w-1.5 rounded-full animate-pulse-soft ${live ? 'bg-up' : 'bg-warn'}`} />
-          {live ? 'CoinGecko live' : 'Simulated fallback'}
+          {live ? 'CoinGecko live' : 'Offline estimates'}
         </span>
       </div>
 

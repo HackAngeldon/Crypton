@@ -2,7 +2,7 @@ import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
   ShieldCheck, KeyRound, Fingerprint, Lock, Bell, BellRing, Globe,
-  Zap, HelpCircle, RotateCcw, ChevronRight, Info, LogOut, Wallet, Moon,
+  Zap, HelpCircle, ChevronRight, Info, LogOut, Wallet, Moon,
 } from 'lucide-react'
 import { useApp } from '@/store/app'
 import { Avatar } from '@/components/ui/Avatar'
@@ -36,7 +36,6 @@ export function Settings() {
   const lockApp = useApp((s) => s.lockApp)
   const logout = useApp((s) => s.logout)
   const changePin = useApp((s) => s.changePin)
-  const resetAll = useApp((s) => s.resetAll)
   const toast = useApp((s) => s.toast)
   const nav = useNavigate()
 
@@ -49,7 +48,6 @@ export function Settings() {
   const [bio, setBio] = useState(false)
   const [alerts, setAlerts] = useState(true)
   const [push, setPush] = useState(true)
-  const [confirmReset, setConfirmReset] = useState(false)
   const [dark, setDark] = useState(() => getTheme() === 'dark')
 
   const toggleTheme = (on: boolean) => {
@@ -126,14 +124,13 @@ export function Settings() {
           {session?.role === 'admin' && (
             <RowBtn icon={Zap} label="Admin control room" sub="Users, balances, markets" onClick={() => nav('/admin')} accent />
           )}
-          <RowBtn icon={HelpCircle} label="About Crypton" sub="v1.0.0 · mock wallet" onClick={() => toast({ kind: 'info', title: 'Crypton', desc: 'A demonstration wallet. No real funds.' })} />
-          <RowBtn icon={RotateCcw} label="Reset demo data" sub="Wipe wallets & start fresh" onClick={() => setConfirmReset(true)} danger />
+          <RowBtn icon={HelpCircle} label="About Crypton" sub="v1.0.0 · self-custody wallet" onClick={() => toast({ kind: 'info', title: 'Crypton', desc: 'Self-custody crypto wallet with live market rates.' })} />
           <RowBtn icon={LogOut} label="Sign out" sub="End this session" onClick={() => void logout()} danger />
         </Section>
 
         <div className="mt-8 flex flex-col items-center gap-2 pb-4">
           <LogoMark size={34} />
-          <p className="text-2xs text-content-faint">Crypton · built for the demo · rates via CoinGecko</p>
+          <p className="text-2xs text-content-faint">Crypton · rates via CoinGecko</p>
         </div>
       </div>
 
@@ -172,24 +169,6 @@ export function Settings() {
             />
           </div>
         </div>
-      </Sheet>
-
-      {/* reset confirm */}
-      <Sheet open={confirmReset} onClose={() => setConfirmReset(false)} title="Reset demo data?" footer={
-        <div className="grid grid-cols-2 gap-2.5">
-          <ButtonGhost onClick={() => setConfirmReset(false)}>Cancel</ButtonGhost>
-          <button
-            onClick={() => { resetAll(); setConfirmReset(false); nav('/') }}
-            className="btn h-12 rounded-2xl bg-down/15 text-down font-semibold"
-          >
-            Yes, reset
-          </button>
-        </div>
-      }>
-        <p className="text-sm leading-relaxed text-content-mute">
-          This wipes all demo wallets, transactions, announcements and market overrides, then reseeds a fresh copy of the demo.
-          Your real device data is unaffected.
-        </p>
       </Sheet>
     </div>
   )
@@ -231,8 +210,4 @@ function RowBtn({
       {right ?? (onClick && <ChevronRight size={17} className="text-content-faint" />)}
     </button>
   )
-}
-
-function ButtonGhost({ children, onClick }: { children: React.ReactNode; onClick: () => void }) {
-  return <button onClick={onClick} className="btn btn-ghost h-12 rounded-2xl">{children}</button>
 }

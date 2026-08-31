@@ -239,5 +239,5 @@ function aboutBlurb(coinId: CoinId): string {
     near: 'NEAR is a user-friendly, sharded proof-of-stake blockchain designed to onboard the next billion users with human-readable accounts.',
     'polygon-ecosystem-token': 'Polygon brings Ethereum-compatible scaling to the mainstream, with fast and low-cost transactions via its aggregated network.',
   }
-  return blurbs[coinId] ?? `${COIN_MAP[coinId].name} is a digital asset tradable through Crypton. Prices shown are indicative mock rates.`
+  return blurbs[coinId] ?? `${COIN_MAP[coinId].name} is a digital asset tradable through Crypton. Prices shown are indicative rates.`
 }

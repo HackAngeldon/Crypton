@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
-import { ChevronDown, CreditCard, Gift, Landmark, Lock, ShieldCheck, Sparkles } from 'lucide-react'
+import { ChevronDown, Gift, Landmark, Lock, ShieldCheck, Sparkles } from 'lucide-react'
 import { useApp } from '@/store/app'
 import { usePriceFeed } from '@/lib/priceFeed'
 import { useCurrency } from '@/lib/currency'
@@ -164,10 +164,6 @@ export function Buy() {
           <Button block size="xl" className="mt-6" onClick={goCheckout} disabled={amt <= 0}>
             Continue to checkout
           </Button>
-          <p className="mt-4 text-center text-2xs text-content-faint">
-            <CreditCard size={12} className="mr-1 inline" />
-            Mock transaction — no real payment is processed
-          </p>
         </div>
       )}
 
@@ -250,7 +246,7 @@ export function Buy() {
             </div>
 
             <button onClick={fillDemoCard} className="mt-4 flex w-full items-center justify-center gap-1.5 rounded-xl bg-brand/10 px-3 py-2.5 text-xs font-bold text-brand">
-              <Sparkles size={13} /> Use Maritime demo card
+              <Sparkles size={13} /> Autofill card details
             </button>
 
             {err && <p className="mt-3 rounded-xl bg-down/10 px-3.5 py-2.5 text-xs text-down">{err}</p>}
@@ -259,7 +255,7 @@ export function Buy() {
               {busy ? 'Charging card…' : `Pay ${cur.fmt(totalFiat)}`}
             </Button>
             <p className="mt-3 flex items-center justify-center gap-1 text-center text-2xs text-content-faint">
-              <ShieldCheck size={12} /> Processed by Maritime Trust Bank · simulated charge
+              <ShieldCheck size={12} /> Processed by Maritime Trust Bank
             </p>
           </div>
         </div>
