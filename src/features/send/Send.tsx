@@ -101,7 +101,7 @@ export function Send() {
     if (pin.length < (user?.pinLen ?? 6)) return
     setBusy(true)
     try {
-      const tx = await send({ asset, amount: amt, address: address.trim(), feeTier })
+      const tx = await send({ asset, amount: amt, address: address.trim(), feeTier, price })
       setTxId(tx.id)
       setStep('success')
       toast({ kind: 'success', title: `Sent ${formatCoin(amt, asset)}`, desc: `Network fee ${formatCoin(fee, asset)} was deducted.` })

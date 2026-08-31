@@ -76,7 +76,7 @@ export function Swap() {
     if (pin.length < (user?.pinLen ?? 6)) return
     setBusy(true)
     try {
-      await swap({ from, to, amount: amt })
+      await swap({ from, to, amount: amt, rate: preview.rate, priceFrom: pFrom, priceTo: pTo })
       setResult({ received: preview.received, from, to, amount: amt })
       toast({ kind: 'success', title: `Swapped ${formatCoin(amt, from)}`, desc: `Received ${formatCoin(preview.received, to)}` })
       setStep('success')

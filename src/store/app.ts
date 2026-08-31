@@ -1,7 +1,7 @@
 import { create } from 'zustand'
 import type { Announcement, CoinId, Tx, User, Wallet } from '@/types'
 import type { Session } from '@/lib/mockApi'
-import { api, getDb } from '@/lib/mockApi'
+import { api, setMeta } from '@/lib/mockApi'
 import { COIN_CATALOG } from '@/data/coins'
 import { usePriceFeed } from '@/lib/priceFeed'
 
@@ -10,6 +10,11 @@ export interface Toast {
   kind: 'success' | 'error' | 'info' | 'warning'
   title: string
   desc?: string
+}
+
+export interface AdminWalletRow {
+  user: User
+  wallet: Wallet
 }
 
 let toastSeq = 0
@@ -23,6 +28,7 @@ interface AppState {
   currency: string
   announcements: Announcement[]
   hiddenCoins: CoinId[]
+  priceOverrides: Partial<Record<CoinId, number>>
   spreadPct: number
   toasts: Toast[]
 
@@ -37,11 +43,11 @@ interface AppState {
   refresh: () => Promise<void>
   setCurrency: (c: string) => void
 
-  send: (p: { asset: CoinId; amount: number; address: string; feeTier: 'low' | 'standard' | 'fast' }) => Promise<Tx>
-  buy: (p: { asset: CoinId; fiatAmount: number }) => Promise<Tx>
-  buyCard: (p: { asset: CoinId; fiatAmount: number; last4: string }) => Promise<Tx>
+  send: (p: { asset: CoinId; amount: number; address: string; feeTier: 'low' | 'standard' | 'fast'; price?: number }) => Promise<Tx>
+  buy: (p: { asset: CoinId; fiatAmount: number; price?: number }) => Promise<Tx>
+  buyCard: (p: { asset: CoinId; fiatAmount: number; price?: number; last4: string }) => Promise<Tx>
   depositFiat: (amount: number) => Promise<void>
-  swap: (p: { from: CoinId; to: CoinId; amount: number }) => Promise<{ rate: number; received: number }>
+  swap: (p: { from: CoinId; to: CoinId; amount: number; rate: number; priceFrom?: number; priceTo?: number }) => Promise<{ rate: number; received: number }>
   updateProfile: (p: Partial<Pick<User, 'name' | 'email' | 'verified' | 'kycLevel'>>) => Promise<void>
 
   toast: (t: Omit<Toast, 'id'>) => void
@@ -49,9 +55,12 @@ interface AppState {
 
   adminUsers: User[]
   adminWallet: Wallet | null
-  adminRefreshUsers: () => void
+  adminLedger: Tx[]
+  adminWallets: AdminWalletRow[]
+  adminRefreshUsers: () => Promise<void>
+  adminRefreshExtended: () => Promise<void>
   adminOpenUser: (userId: string) => Promise<void>
-  adminSetBalance: (p: { userId: string; asset: CoinId; amount: number; note?: string }) => Promise<void>
+  adminSetBalance: (p: { userId: string; asset: CoinId; amount: number; note?: string; price?: number }) => Promise<void>
   adminToggleFreeze: (userId: string) => Promise<void>
   adminSetSpread: (pct: number) => Promise<void>
   adminOverridePrice: (asset: CoinId, price: number | null) => Promise<void>
@@ -64,8 +73,15 @@ interface AppState {
 export const useApp = create<AppState>((set, get) => {
   const withWalletTx = async (userId: string) => {
     const { user, wallet } = await api.me(userId)
-    const txs = api.listTxs(userId, 80)
-    set({ user, wallet, txs, announcements: api.announcements() })
+    const txs = await api.listTxs(userId, 80)
+    const announcements = await api.announcements()
+    set({ user, wallet, txs, announcements })
+  }
+
+  const refreshMeta = async () => {
+    const m = await api.getMeta()
+    setMeta(m)
+    set({ hiddenCoins: m.hiddenCoins, priceOverrides: m.priceOverrides, spreadPct: m.spreadPct, announcements: m.announcements })
   }
 
   return {
@@ -77,20 +93,33 @@ export const useApp = create<AppState>((set, get) => {
     currency: 'USD',
     announcements: [],
     hiddenCoins: [],
+    priceOverrides: {},
     spreadPct: 0.4,
     toasts: [],
 
     dbInit: async () => {
-      await api.init()
-      const d = getDb()
+      const m = await api.init()
+      set({
+        ready: true,
+        hiddenCoins: m.hiddenCoins,
+        priceOverrides: m.priceOverrides,
+        spreadPct: m.spreadPct,
+        announcements: m.announcements,
+      })
       const session = api.getSession()
-      set({ hiddenCoins: d.meta.hiddenCoins, spreadPct: d.meta.spreadPct, ready: true })
-      if (session) await get().boot(session)
+      if (session) {
+        try {
+          await get().boot(session)
+        } catch {
+          await api.logout().catch(() => {})
+          set({ session: null, user: null, wallet: null, txs: [] })
+        }
+      }
     },
 
     boot: async (session) => {
-      const { user } = await api.me(session.userId)
-      set({ session, user, wallet: getDb().wallets[user.id] })
+      const { user, wallet } = await api.me(session.userId)
+      set({ session, user, wallet })
       await withWalletTx(user.id)
     },
 
@@ -129,8 +158,7 @@ export const useApp = create<AppState>((set, get) => {
     refresh: async () => {
       const { session } = get()
       if (session) await withWalletTx(session.userId)
-      const d = getDb()
-      set({ hiddenCoins: d.meta.hiddenCoins, spreadPct: d.meta.spreadPct, announcements: api.announcements() })
+      await refreshMeta()
     },
 
     setCurrency: (currency) => set({ currency }),
@@ -138,7 +166,7 @@ export const useApp = create<AppState>((set, get) => {
     send: async (p) => {
       const { session } = get()
       if (!session) throw new Error('Not signed in')
-      const tx = await api.send({ userId: session.userId, ...p })
+      const tx = await api.send(p)
       await withWalletTx(session.userId)
       return tx
     },
@@ -146,7 +174,7 @@ export const useApp = create<AppState>((set, get) => {
     buy: async (p) => {
       const { session } = get()
       if (!session) throw new Error('Not signed in')
-      const tx = await api.buy({ userId: session.userId, ...p })
+      const tx = await api.buy(p)
       await withWalletTx(session.userId)
       return tx
     },
@@ -154,7 +182,7 @@ export const useApp = create<AppState>((set, get) => {
     buyCard: async (p) => {
       const { session } = get()
       if (!session) throw new Error('Not signed in')
-      const tx = await api.buyWithCard({ userId: session.userId, ...p })
+      const tx = await api.buyWithCard(p)
       await withWalletTx(session.userId)
       return tx
     },
@@ -162,14 +190,14 @@ export const useApp = create<AppState>((set, get) => {
     depositFiat: async (amount) => {
       const { session } = get()
       if (!session) throw new Error('Not signed in')
-      await api.depositFiat({ userId: session.userId, amount })
+      await api.depositFiat({ amount })
       await withWalletTx(session.userId)
     },
 
     swap: async (p) => {
       const { session } = get()
       if (!session) throw new Error('Not signed in')
-      const res = await api.swap({ userId: session.userId, ...p })
+      const res = await api.swap(p)
       await withWalletTx(session.userId)
       return { rate: res.rate, received: res.received }
     },
@@ -190,8 +218,15 @@ export const useApp = create<AppState>((set, get) => {
 
     adminUsers: [],
     adminWallet: null,
-    adminRefreshUsers: () => {
-      set({ adminUsers: api.listUsers() })
+    adminLedger: [],
+    adminWallets: [],
+    adminRefreshUsers: async () => {
+      set({ adminUsers: await api.listUsers() })
+    },
+
+    adminRefreshExtended: async () => {
+      const [ledger, wallets] = await Promise.all([api.adminLedger(), api.adminAllWallets()])
+      set({ adminLedger: ledger, adminWallets: wallets })
     },
 
     adminOpenUser: async (userId) => {
@@ -201,7 +236,7 @@ export const useApp = create<AppState>((set, get) => {
 
     adminSetBalance: async (p) => {
       await api.adminSetBalance(p)
-      get().adminRefreshUsers()
+      await get().adminRefreshUsers()
       await get().refresh()
       const { session } = get()
       if (session && p.userId === session.userId) await get().boot(session)
@@ -211,10 +246,9 @@ export const useApp = create<AppState>((set, get) => {
     },
 
     adminToggleFreeze: async (userId) => {
-      const d = getDb()
-      const user = d.users[userId]
-      await api.adminToggleFreeze(userId, !user.frozen)
-      get().adminRefreshUsers()
+      const u = get().adminUsers.find((x) => x.id === userId)
+      await api.adminToggleFreeze(userId, !u?.frozen)
+      await get().adminRefreshUsers()
       await get().refresh()
     },
 
@@ -226,30 +260,28 @@ export const useApp = create<AppState>((set, get) => {
     adminOverridePrice: async (asset, price) => {
       await api.adminOverridePrice(asset, price)
       usePriceFeed.getState().applyOverride(asset, price)
-      const d = getDb()
-      set({ hiddenCoins: d.meta.hiddenCoins })
+      await refreshMeta()
     },
 
     adminToggleCoin: async (asset) => {
-      const d = getDb()
-      const isHidden = d.meta.hiddenCoins.includes(asset)
+      const isHidden = get().hiddenCoins.includes(asset)
       await api.adminToggleCoin(asset, !isHidden)
-      set({ hiddenCoins: getDb().meta.hiddenCoins })
+      await refreshMeta()
     },
 
     adminAnnounce: async (text, severity) => {
       await api.adminAnnounce(text, severity)
-      set({ announcements: api.announcements() })
+      set({ announcements: await api.announcements() })
     },
 
     adminClearAnnounce: async (id) => {
       await api.adminClearAnnounce(id)
-      set({ announcements: api.announcements() })
+      set({ announcements: await api.announcements() })
     },
 
     adminAddFiat: async (userId, amount) => {
       await api.adminAddFiat(userId, amount)
-      get().adminRefreshUsers()
+      await get().adminRefreshUsers()
       if (get().adminWallet && userId === get().adminWallet!.userId) {
         set({ adminWallet: await api.adminGetWallet(userId) })
       }

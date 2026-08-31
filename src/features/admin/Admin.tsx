@@ -7,7 +7,6 @@ import {
 import { useApp } from '@/store/app'
 import { usePriceFeed } from '@/lib/priceFeed'
 import { useCurrency } from '@/lib/currency'
-import { getDb } from '@/lib/mockApi'
 import { COIN_CATALOG, COIN_MAP } from '@/data/coins'
 import { Avatar } from '@/components/ui/Avatar'
 import { PageHeader } from '@/components/PageHeader'
@@ -42,13 +41,18 @@ function AdminDenied() {
 function AdminPanel({ session }: { session: Session }) {
   const [tab, setTab] = useState<Tab>('overview')
   const adminRefreshUsers = useApp((s) => s.adminRefreshUsers)
+  const adminRefreshExtended = useApp((s) => s.adminRefreshExtended)
   const adminUsers = useApp((s) => s.adminUsers)
+  const adminWallets = useApp((s) => s.adminWallets)
   const txs = useApp((s) => s.txs)
   const announcements = useApp((s) => s.announcements)
   const user = useApp((s) => s.user)
   const hiddenCoins = useApp((s) => s.hiddenCoins)
 
-  useMemo(() => adminRefreshUsers(), [adminRefreshUsers])
+  useEffect(() => {
+    void adminRefreshUsers()
+    void adminRefreshExtended()
+  }, [adminRefreshUsers, adminRefreshExtended])
 
   const tabs: Array<{ id: Tab; label: string; icon: typeof Users }> = [
     { id: 'overview', label: 'Overview', icon: LayoutDashboard },
@@ -62,16 +66,15 @@ function AdminPanel({ session }: { session: Session }) {
   const prices = usePriceFeed((s) => s.markets)
   const live = usePriceFeed((s) => s.live)
   const aum = useMemo(() => {
-    const d = getDb()
     let sum = 0
-    for (const wallet of Object.values(d.wallets)) {
+    for (const { wallet } of adminWallets) {
       sum += wallet.fiat ?? 0
       for (const [id, amt] of Object.entries(wallet.balances)) {
         sum += amt * (prices[id as CoinId]?.price ?? 0)
       }
     }
     return sum
-  }, [prices])
+  }, [adminWallets, prices])
 
   return (
     <div className="pb-10">
@@ -234,6 +237,7 @@ function UserDetail({ user, onClose }: { user: User | null; onClose: () => void 
   const adminOpenUser = useApp((s) => s.adminOpenUser)
   const adminWallet = useApp((s) => s.adminWallet)
   const toast = useApp((s) => s.toast)
+  const markets = usePriceFeed((s) => s.markets)
   const cur = useCurrency()
 
   useEffect(() => {
@@ -248,14 +252,14 @@ function UserDetail({ user, onClose }: { user: User | null; onClose: () => void 
   const apply = async (id: CoinId, note?: string) => {
     const v = parseFloat(balance[id] ?? '')
     if (isNaN(v) || v < 0) return
-    await adminSetBalance({ userId: user.id, asset: id, amount: v, note })
+    await adminSetBalance({ userId: user.id, asset: id, amount: v, note, price: markets[id]?.price })
     setBalance((p) => ({ ...p, [id]: '' }))
     toast({ kind: 'success', title: 'Balance updated', desc: `${COIN_MAP[id].symbol} set to ${formatCoin(v, id)}` })
   }
 
   const credit = async (id: CoinId, delta: number) => {
     const curBal = w?.balances[id] ?? 0
-    await adminSetBalance({ userId: user.id, asset: id, amount: Math.max(0, curBal + delta), note: delta > 0 ? 'Admin credit' : 'Admin debit' })
+    await adminSetBalance({ userId: user.id, asset: id, amount: Math.max(0, curBal + delta), note: delta > 0 ? 'Admin credit' : 'Admin debit', price: markets[id]?.price })
     toast({ kind: 'success', title: `${delta > 0 ? 'Credited' : 'Debited'} ${COIN_MAP[id].symbol}`, desc: `${delta > 0 ? '+' : ''}${formatCoin(delta, id)}` })
   }
 
@@ -329,10 +333,11 @@ function MarketsTab({ hiddenCoins }: { hiddenCoins: CoinId[] }) {
   const adminOverridePrice = useApp((s) => s.adminOverridePrice)
   const adminToggleCoin = useApp((s) => s.adminToggleCoin)
   const markets = usePriceFeed((s) => s.markets)
+  const priceOverrides = useApp((s) => s.priceOverrides)
   const [overrides, setOverrides] = useState<Partial<Record<CoinId, string>>>({})
   const toast = useApp((s) => s.toast)
 
-  const dbOverrides = getOverrides()
+  const dbOverrides = priceOverrides
 
   return (
     <div className="animate-rise-in">
@@ -481,10 +486,8 @@ function BroadcastTab() {
 /* -------------------------------- ledger -------------------------------- */
 
 function LedgerTab({ users }: { users: User[] }) {
-  const db = useApp((s) => s)
-  const allTxs = useMemo(() => {
-    return [...getDb().txs].sort((a, b) => b.timestamp - a.timestamp)
-  }, [db.txs])
+  const ledger = useApp((s) => s.adminLedger)
+  const allTxs = useMemo(() => [...ledger].sort((a, b) => b.timestamp - a.timestamp), [ledger])
   const [filter, setFilter] = useState<'all' | 'send' | 'receive' | 'swap' | 'buy' | 'system'>('all')
   const nameOf = (id: string) => users.find((u) => u.id === id)?.name ?? 'unknown'
   const filtered = allTxs.filter((t) => {
@@ -535,8 +538,4 @@ function severityTone(s: string): string {
     warning: '!text-warn bg-warn/10 border-warn/25',
     danger: '!text-down bg-down/10 border-down/25',
   }[s] ?? ''
-}
-
-function getOverrides(): Partial<Record<CoinId, number>> {
-  return { ...getDb().meta.priceOverrides }
 }

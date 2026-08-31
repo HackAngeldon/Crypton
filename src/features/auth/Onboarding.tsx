@@ -64,7 +64,11 @@ export function Onboarding() {
   }
   const goPin = () => {
     setLocalErr('')
-    if (mode === 'login') setPinLen(api.pinLengthFor(email))
+    if (mode === 'login') {
+      void api.pinLengthFor(email)
+        .then((n) => setPinLen(n))
+        .catch(() => {})
+    }
     setStep('pin')
   }
 

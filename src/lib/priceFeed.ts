@@ -1,7 +1,7 @@
 import { create } from 'zustand'
 import type { CoinId, MarketSnapshot, Period } from '@/types'
 import { COIN_CATALOG, COIN_MAP, FALLBACK_CHANGE, FALLBACK_PRICES } from '@/data/coins'
-import { bindPriceResolver, getDb } from './mockApi'
+import { bindPriceResolver, getMetaSync } from './mockApi'
 import { clamp, delay, mulberry32, randomWalkSeries } from './sim'
 
 const CHART_CACHE_KEY = 'crypton.charts.v1'
@@ -95,7 +95,7 @@ let tickTimer: ReturnType<typeof setInterval> | null = null
 function applyOverrides(markets: Record<CoinId, MarketSnapshot>): Record<CoinId, MarketSnapshot> {
   const next = { ...markets }
   try {
-    const overrides = getDb().meta.priceOverrides
+    const overrides = getMetaSync().priceOverrides
     for (const [id, price] of Object.entries(overrides)) {
       const cid = id as CoinId
       if (price && next[cid]) {

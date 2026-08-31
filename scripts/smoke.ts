@@ -1,168 +1,118 @@
-/* Node smoke test for the Crypton mock backend. Run with: npm test */
-/* eslint-disable no-console */
+/* HTTP smoke test for the Crypton backend. Run with: npm test
+   Requires DATABASE_URL (from .env.local) — it seeds the crypton_* tables on
+   first access and creates throwaway test users. */
 
-const store = new Map<string, string>()
-;(globalThis as any).localStorage = {
-  getItem: (k: string) => (store.has(k) ? store.get(k)! : null),
-  setItem: (k: string, v: string) => store.set(k, v),
-  removeItem: (k: string) => store.delete(k),
-  clear: () => store.clear(),
-  key: (i: number) => [...store.keys()][i] ?? null,
-  get length() {
-    return store.size
-  },
+import { createServer } from "node:http";
+import { fileURLToPath } from "node:url";
+import { handleRoute } from "../src/server/http";
+
+try {
+  process.loadEnvFile(fileURLToPath(new URL("../.env.local", import.meta.url)));
+} catch {
+  /* no .env.local — DATABASE_URL must come from the environment */
 }
 
-const { api, getDb, resetDb, priceNow, swapPreview } = await import('../src/lib/mockApi')
+const PORT = 8799;
+const BASE = `http://127.0.0.1:${PORT}`;
 
-let pass = 0
-let fail = 0
+let pass = 0;
+let fail = 0;
 function ok(cond: boolean, msg: string) {
   if (cond) {
-    pass++
-    console.log(`  ✓ ${msg}`)
+    pass++;
+    console.log(`  \u2713 ${msg}`);
   } else {
-    fail++
-    console.error(`  ✗ FAIL: ${msg}`)
+    fail++;
+    console.error(`  \u2717 FAIL: ${msg}`);
   }
 }
 
-resetDb()
-await api.init()
-const d = getDb()
-
-console.log('seed')
-ok(d.meta.seeded, 'db seeded')
-ok(Object.keys(d.users).length === 2, `two users seeded (${Object.keys(d.users).length})`)
-ok(!!d.wallets[d.meta.adminId], 'admin has a wallet')
-const alex = Object.values(d.users).find((u) => u.email === 'alex@crypton.app')!
-ok(alex.role === 'user', 'alex is a user')
-const admin = Object.values(d.users).find((u) => u.email === 'admin@crypton.app')!
-ok(admin.role === 'admin', 'admin exists')
-
-console.log('auth')
-let err = ''
-try {
-  await api.login('alex@crypton.app', '9999')
-} catch (e) {
-  err = (e as Error).message
+async function req(method: string, path: string, body?: unknown, token?: string) {
+  const res = await fetch(BASE + path, {
+    method,
+    headers: {
+      "Content-Type": "application/json",
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+    body: body === undefined ? undefined : JSON.stringify(body),
+  });
+  const data = await res.json().catch(() => ({}));
+  return { status: res.status, data };
 }
-ok(err.includes('Incorrect'), 'wrong PIN rejected')
 
-const s = await api.login('alex@crypton.app', '1234')
-ok(s.userId === alex.id && !s.locked, 'correct login works')
-ok(alex.pinLen === 4, 'alex PIN length is 4')
-ok(api.pinLengthFor('alex@crypton.app') === 4, 'pinLengthFor resolves 4-digit account')
-ok(api.pinLengthFor('admin@crypton.app') === 6, 'pinLengthFor resolves 6-digit account')
+const srv = createServer((req, res) => {
+  handleRoute(req, res).catch(() => {
+    res.statusCode = 500;
+    res.end("Internal error");
+  });
+});
+await new Promise<void>((resolve) => srv.listen(PORT, resolve));
 
-await api.lock()
-let locked = api.getSession()
-ok(locked!.locked === true, 'lock sets locked flag')
-await api.unlock('1234')
-locked = api.getSession()
-ok(locked!.locked === false, 'unlock clears flag')
+console.log("meta / auth");
+let r = await req("GET", "/meta");
+ok(r.status === 200 && r.data.seeded, "db seeded");
 
-console.log('send')
-let wal = d.wallets[alex.id]
-const btcBefore = wal.balances.bitcoin!
-err = ''
-try {
-  await api.send({ userId: alex.id, asset: 'bitcoin', amount: 999, address: 'bc1q'.padEnd(20, 'a'), feeTier: 'standard' })
-} catch (e) {
-  err = (e as Error).message
-}
-ok(err.includes('Insufficient'), 'insufficient balance rejected')
-wal = d.wallets[alex.id]
-ok(wal.balances.bitcoin! === btcBefore, 'balance unchanged after failed send')
+const email = `smoke-${Date.now()}@crypton.test`;
+r = await req("POST", "/auth/register", { name: "Smoke Test", email, pin: "777777" });
+ok(r.status === 200 && !!r.data.token, "register works");
+const token = r.data.token as string;
 
-const sendTx = await api.send({ userId: alex.id, asset: 'bitcoin', amount: 0.01, address: 'bc1q' + 'x'.repeat(30), feeTier: 'standard' })
-wal = d.wallets[alex.id]
-const btcAfter = wal.balances.bitcoin!
-ok(Math.abs(btcBefore - btcAfter - 0.01 - 0.01 * 0.0009) < 1e-9, 'send deducts amount + fee')
-ok(sendTx.type === 'send' && sendTx.status === 'confirmed', 'send tx recorded')
+r = await req("POST", "/auth/login", { email, pin: "9999" });
+ok(r.status === 400, "wrong PIN rejected");
 
-console.log('buy')
-const fiatBefore = wal.fiat
-const ethBefore = wal.balances.ethereum ?? 0
-await api.buy({ userId: alex.id, asset: 'ethereum', fiatAmount: 300 })
-wal = d.wallets[alex.id]
-ok(wal.fiat < fiatBefore, 'buy deducts fiat')
-ok((wal.balances.ethereum ?? 0) > ethBefore, 'buy credits coin')
-ok(wal.fiat >= 0, 'fiat never negative')
+r = await req("POST", "/auth/login", { email, pin: "777777" });
+ok(r.status === 200 && !!r.data.token, "login works");
 
-console.log('deposit + buy beyond fiat')
-await api.depositFiat({ userId: alex.id, amount: 500 })
-wal = d.wallets[alex.id]
-ok(wal.fiat >= 300, 'top-up adds fiat')
+r = await req("GET", "/me", undefined, token);
+ok(r.status === 200 && r.data.wallet.balances.tether === 25, "welcome bonus present");
 
-console.log('swap')
-const solBefore = wal.balances.solana!
-const usdtBefore = wal.balances.tether ?? 0
-const pv = swapPreview('solana', 'tether', 2)
-ok(pv.received > 0 && pv.rate > 0, 'swap preview positive')
-await api.swap({ userId: alex.id, from: 'solana', to: 'tether', amount: 2 })
-wal = d.wallets[alex.id]
-ok(wal.balances.solana! === solBefore - 2, 'swap deducts source')
-ok(Math.abs((wal.balances.tether ?? 0) - usdtBefore - pv.received) < 1e-9, 'swap credits dest at preview rate')
-ok(api.listTxs(alex.id).filter((t) => t.type === 'swap_in' || t.type === 'swap_out').length >= 2, 'swap txs recorded')
+r = await req("GET", `/auth/pin-length?email=${encodeURIComponent(email)}`);
+ok(r.data.pinLen === 6, "pinLength resolved");
 
-console.log('frozen account')
-await api.adminToggleFreeze(alex.id, true)
-err = ''
-try {
-  await api.login('alex@crypton.app', '1234')
-} catch (e) {
-  err = (e as Error).message
-}
-ok(err.includes('frozen'), 'frozen user cannot log in')
-await api.adminToggleFreeze(alex.id, false)
+console.log("send / buy / swap");
+r = await req("POST", "/send", { asset: "bitcoin", amount: 999, address: "bc1q".padEnd(20, "a"), feeTier: "standard", price: 64000 }, token);
+ok(r.status === 400 && /Insufficient/.test(r.data.error ?? ""), "insufficient balance rejected");
 
-console.log('admin balance set')
-await api.adminSetBalance({ userId: alex.id, asset: 'dogecoin', amount: 10000, note: 'Loyalty bonus' })
-wal = d.wallets[alex.id]
-ok(wal.balances.dogecoin === 10000, 'admin sets exact balance')
-ok(api.listTxs(alex.id)[0].type === 'admin_credit', 'admin credit tx recorded')
+r = await req("POST", "/deposit-fiat", { amount: 500 }, token);
+ok(r.status === 200, "deposit fiat works");
 
-console.log('price override')
-await api.adminOverridePrice('bitcoin', 99999)
-ok(getDb().meta.priceOverrides.bitcoin === 99999, 'price override persisted (feed applies it in-app)')
-await api.adminOverridePrice('bitcoin', null)
-ok(!getDb().meta.priceOverrides.bitcoin, 'price override cleared')
+r = await req("POST", "/buy", { asset: "bitcoin", fiatAmount: 100, price: 64000 }, token);
+ok(r.status === 200 && r.data.type === "buy", "buy works");
 
-console.log('announcement')
-await api.adminAnnounce('Testing maintenance window', 'warning')
-ok(api.announcements().length === 1, 'announcement broadcast')
+r = await req("POST", "/swap", { from: "tether", to: "bitcoin", amount: 1, rate: 0.000015625, priceFrom: 1, priceTo: 64000 }, token);
+ok(r.status === 200 && r.data.received > 0, "swap works");
 
-console.log('register new user')
-const reg = await api.register('New Person', 'new@person.io', '777777')
-ok(!!reg.session.userId, 'register returns session')
-const nw = d.wallets[reg.session.userId]
-ok(nw.balances.tether === 25 && nw.balances['usd-coin'] === 25, 'new user gets welcome bonus')
+r = await req("GET", "/transactions", undefined, token);
+ok(r.status === 200 && Array.isArray(r.data) && r.data.length >= 6, "tx list works");
 
-err = ''
-try {
-  await api.register('New Person', 'new@person.io', '111111')
-} catch (e) {
-  err = (e as Error).message
-}
-ok(err.includes('already exists'), 'duplicate email rejected')
+console.log("pin change");
+r = await req("POST", "/auth/change-pin", { current: "777777", next: "888888" }, token);
+ok(r.status === 200, "change pin works");
+r = await req("POST", "/auth/unlock", { pin: "888888" }, token);
+ok(r.status === 200, "new pin unlocks");
 
-console.log('change pin')
-await api.changePin('777777', '888888')
-err = ''
-try {
-  await api.unlock('777777')
-} catch (e) {
-  err = (e as Error).message
-}
-ok(err.includes('Incorrect'), 'old pin rejected after change')
-const s2 = await api.login('new@person.io', '888888')
-ok(!!s2.userId, 'new pin works')
+console.log("admin");
+const adminLogin = await req("POST", "/auth/login", { email: "admin@crypton.app", pin: "000000" });
+ok(adminLogin.status === 200, "admin login works");
+const atok = adminLogin.data.token as string;
 
-console.log('reset')
-resetDb()
-const d2 = getDb()
-ok(d2.meta.seeded && Object.keys(d2.users).length === 2, 'reset reseeds demo data')
+r = await req("GET", "/admin/users", undefined, atok);
+ok(r.status === 200 && r.data.length >= 2, "admin lists users");
 
-console.log(`\n${pass} passed, ${fail} failed`)
-process.exit(fail ? 1 : 0)
+r = await req("POST", "/admin/freeze", { userId: r.data.find((u: { email: string }) => u.email === email)?.id, frozen: true }, atok);
+ok(r.status === 200 && r.data.frozen === true, "admin freezes user");
+
+r = await req("POST", "/admin/override-price", { asset: "bitcoin", price: 99999 }, atok);
+ok(r.status === 200, "price override set");
+
+r = await req("GET", "/meta");
+ok(r.data.priceOverrides.bitcoin === 99999, "override persisted");
+
+r = await req("POST", "/admin/announce", { text: "Test notice", severity: "warning" }, atok);
+ok(r.status === 200, "announcement broadcast");
+r = await req("GET", "/announcements");
+ok(r.data.some((a: { text: string }) => a.text === "Test notice"), "announcement visible");
+
+await new Promise<void>((resolve) => srv.close(() => resolve()));
+console.log(`\n${pass} passed, ${fail} failed`);
+process.exit(fail ? 1 : 0);

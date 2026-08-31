@@ -73,7 +73,7 @@ export function Buy() {
     setErr('')
     try {
       const charge = await maritimeCharge(totalFiat, { number: num, expiry: cardExp.trim(), cvv: cardCvv.trim() })
-      await buyCard({ asset: coin, fiatAmount: amt, last4: charge.last4 })
+      await buyCard({ asset: coin, fiatAmount: amt, price, last4: charge.last4 })
       const label = BRAND_LABEL[brand ?? ''] ?? 'Maritime'
       setPaidBy(`${label} •••• ${charge.last4}`)
       toast({
