@@ -44,76 +44,80 @@ function getToken(req: IncomingMessage): string {
   return h.startsWith("Bearer ") ? h.slice(7) : "";
 }
 
-function parseUrl(req: IncomingMessage): { path: string; query: URLSearchParams } {
-  const u = new URL(req.url ?? "/", "http://localhost");
-  return { path: u.pathname.replace(/^\/api/, "") || "/", query: u.searchParams };
+type Ctx = { token: string; body: any; query: URLSearchParams; method: string };
+export type VercelHandler = (req: IncomingMessage, res: ServerResponse) => Promise<void> | void;
+
+function makeHandler(fn: (ctx: Ctx) => Promise<unknown> | unknown): VercelHandler {
+  return async (req, res) => {
+    try {
+      const u = new URL(req.url ?? "/", "http://localhost");
+      const method = (req.method ?? "GET").toUpperCase();
+      const body = method === "GET" ? {} : await readBody(req);
+      const data = await fn({ token: getToken(req), body, query: u.searchParams, method });
+      json(res, 200, data);
+    } catch (err) {
+      if (err instanceof ApiError) {
+        json(res, err.status, { error: err.message });
+      } else if (err instanceof Error) {
+        json(res, 400, { error: err.message });
+      } else {
+        json(res, 500, { error: "Unexpected error" });
+      }
+    }
+  };
 }
 
-type Handler = (ctx: { token: string; body: any; query: URLSearchParams; method: string }) => Promise<unknown> | unknown;
+const DEFS: Array<[string, string, (ctx: Ctx) => Promise<unknown> | unknown]> = [
+  ["GET", "/meta", () => core.meta()],
+  ["GET", "/health", () => ({ ok: true })],
 
-function h(fn: (ctx: { token: string; body: any; query: URLSearchParams }) => Promise<unknown> | unknown): Handler {
-  return fn;
-}
+  ["POST", "/auth/register", ({ body }) => core.register(body.name, body.email, body.pin)],
+  ["POST", "/auth/login", ({ body }) => core.login(body.email, body.pin)],
+  ["POST", "/auth/logout", ({ token }) => core.logout(token)],
+  ["POST", "/auth/lock", () => ({})],
+  ["POST", "/auth/unlock", ({ token, body }) => core.unlock(token, body.pin)],
+  ["POST", "/auth/change-pin", ({ token, body }) => core.changePin(token, body.current, body.next)],
+  ["GET", "/auth/pin-length", ({ query }) => core.pinLength(query.get("email") ?? "").then((pinLen) => ({ pinLen }))],
 
-const ROUTES: Array<{ method: string; path: string; handler: Handler }> = [
-  { method: "GET", path: "/meta", handler: h(() => core.meta()) },
-  { method: "GET", path: "/health", handler: h(() => ({ ok: true })) },
+  ["GET", "/me", ({ token }) => core.me(token)],
+  ["GET", "/transactions", ({ token, query }) => core.listTxs(token, Number(query.get("limit") ?? 0) || undefined)],
+  ["GET", "/announcements", () => core.announcements()],
 
-  { method: "POST", path: "/auth/register", handler: h(({ body }) => core.register(body.name, body.email, body.pin)) },
-  { method: "POST", path: "/auth/login", handler: h(({ body }) => core.login(body.email, body.pin)) },
-  { method: "POST", path: "/auth/logout", handler: h(({ token }) => core.logout(token)) },
-  { method: "POST", path: "/auth/lock", handler: h(() => ({})) },
-  { method: "POST", path: "/auth/unlock", handler: h(({ token, body }) => core.unlock(token, body.pin)) },
-  { method: "POST", path: "/auth/change-pin", handler: h(({ token, body }) => core.changePin(token, body.current, body.next)) },
-  { method: "GET", path: "/auth/pin-length", handler: h(({ query }) => core.pinLength(query.get("email") ?? "").then((pinLen) => ({ pinLen }))) },
+  ["POST", "/send", ({ token, body }) => core.send(token, body)],
+  ["POST", "/buy", ({ token, body }) => core.buy(token, body)],
+  ["POST", "/buy-card", ({ token, body }) => core.buyWithCard(token, body)],
+  ["POST", "/deposit-fiat", ({ token, body }) => core.depositFiat(token, Number(body.amount))],
+  ["POST", "/swap", ({ token, body }) => core.swap(token, body)],
+  ["POST", "/profile", ({ token, body }) => core.updateProfile(token, body)],
 
-  { method: "GET", path: "/me", handler: h(({ token }) => core.me(token)) },
-  { method: "GET", path: "/transactions", handler: h(({ token, query }) => core.listTxs(token, Number(query.get("limit") ?? 0) || undefined)) },
-  { method: "GET", path: "/announcements", handler: h(() => core.announcements()) },
-
-  { method: "POST", path: "/send", handler: h(({ token, body }) => core.send(token, body)) },
-  { method: "POST", path: "/buy", handler: h(({ token, body }) => core.buy(token, body)) },
-  { method: "POST", path: "/buy-card", handler: h(({ token, body }) => core.buyWithCard(token, body)) },
-  { method: "POST", path: "/deposit-fiat", handler: h(({ token, body }) => core.depositFiat(token, Number(body.amount))) },
-  { method: "POST", path: "/swap", handler: h(({ token, body }) => core.swap(token, body)) },
-  { method: "POST", path: "/profile", handler: h(({ token, body }) => core.updateProfile(token, body)) },
-
-  { method: "GET", path: "/admin/users", handler: h(({ token }) => core.adminListUsers(token)) },
-  { method: "GET", path: "/admin/wallet", handler: h(({ token, query }) => core.adminGetWallet(token, query.get("userId") ?? "")) },
-  { method: "GET", path: "/admin/ledger", handler: h(({ token }) => core.adminLedger(token)) },
-  { method: "GET", path: "/admin/all-wallets", handler: h(({ token }) => core.adminAllWallets(token)) },
-  { method: "POST", path: "/admin/balance", handler: h(({ token, body }) => core.adminSetBalance(token, body)) },
-  { method: "POST", path: "/admin/freeze", handler: h(({ token, body }) => core.adminToggleFreeze(token, body.userId, Boolean(body.frozen))) },
-  { method: "POST", path: "/admin/spread", handler: h(({ token, body }) => core.adminSetSpread(token, Number(body.pct))) },
-  { method: "POST", path: "/admin/override-price", handler: h(({ token, body }) => core.adminOverridePrice(token, body.asset, body.price === null ? null : Number(body.price))) },
-  { method: "POST", path: "/admin/coin", handler: h(({ token, body }) => core.adminToggleCoin(token, body.asset, Boolean(body.hidden))) },
-  { method: "POST", path: "/admin/announce", handler: h(({ token, body }) => core.adminAnnounce(token, body.text, body.severity)) },
-  { method: "POST", path: "/admin/announce/clear", handler: h(({ token, body }) => core.adminClearAnnounce(token, body.id)) },
-  { method: "POST", path: "/admin/add-fiat", handler: h(({ token, body }) => core.adminAddFiat(token, body.userId, Number(body.amount))) },
+  ["GET", "/admin/users", ({ token }) => core.adminListUsers(token)],
+  ["GET", "/admin/wallet", ({ token, query }) => core.adminGetWallet(token, query.get("userId") ?? "")],
+  ["GET", "/admin/ledger", ({ token }) => core.adminLedger(token)],
+  ["GET", "/admin/all-wallets", ({ token }) => core.adminAllWallets(token)],
+  ["POST", "/admin/balance", ({ token, body }) => core.adminSetBalance(token, body)],
+  ["POST", "/admin/freeze", ({ token, body }) => core.adminToggleFreeze(token, body.userId, Boolean(body.frozen))],
+  ["POST", "/admin/spread", ({ token, body }) => core.adminSetSpread(token, Number(body.pct))],
+  ["POST", "/admin/override-price", ({ token, body }) => core.adminOverridePrice(token, body.asset, body.price === null ? null : Number(body.price))],
+  ["POST", "/admin/coin", ({ token, body }) => core.adminToggleCoin(token, body.asset, Boolean(body.hidden))],
+  ["POST", "/admin/announce", ({ token, body }) => core.adminAnnounce(token, body.text, body.severity)],
+  ["POST", "/admin/announce/clear", ({ token, body }) => core.adminClearAnnounce(token, body.id)],
+  ["POST", "/admin/add-fiat", ({ token, body }) => core.adminAddFiat(token, body.userId, Number(body.amount))],
 ];
 
-export async function handleRoute(req: IncomingMessage, res: ServerResponse): Promise<void> {
-  try {
-    const method = (req.method ?? "GET").toUpperCase();
-    const { path, query } = parseUrl(req);
-    const route = ROUTES.find((r) => r.method === method && r.path === path);
-    if (!route) {
-      return json(res, 404, { error: `No route for ${method} ${path}` });
-    }
-    const body = method === "GET" ? {} : await readBody(req);
-    const data = await route.handler({ token: getToken(req), body, query, method });
-    json(res, 200, data);
-  } catch (err) {
-    if (err instanceof ApiError) {
-      json(res, err.status, { error: err.message });
-    } else if (err instanceof Error) {
-      json(res, 400, { error: err.message });
-    } else {
-      json(res, 500, { error: "Unexpected error" });
-    }
-  }
+export const routeHandlers: Record<string, VercelHandler> = {};
+for (const [method, path, fn] of DEFS) {
+  routeHandlers[`${method} ${path}`] = makeHandler(fn);
 }
 
-export async function handleRequest(req: IncomingMessage, res: ServerResponse): Promise<void> {
-  await handleRoute(req, res);
+export async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> {
+  const method = (req.method ?? "GET").toUpperCase();
+  const path = new URL(req.url ?? "/", "http://localhost").pathname.replace(/^\/api/, "") || "/";
+  const handler = routeHandlers[`${method} ${path}`];
+  if (!handler) {
+    json(res, 404, { error: `No route for ${method} ${path}` });
+    return;
+  }
+  await handler(req, res);
 }
+
+export const handleRoute = handle;
