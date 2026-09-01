@@ -154,7 +154,7 @@ function AdminPanel() {
         </header>
 
         {/* Content */}
-        <main className="mx-auto max-w-[430px] px-4 pb-32 pt-5 lg:max-w-3xl lg:px-8 lg:pb-16 lg:pt-8">
+        <main className="mx-auto w-full max-w-[430px] px-4 pb-32 pt-5 lg:mx-0 lg:max-w-none lg:flex-1 lg:px-6 lg:pb-12 lg:pt-6">
           <div className="mb-5 hidden items-end justify-between lg:flex">
             <div>
               <h1 className="font-display text-2xl font-bold tracking-tight text-content">{TABS.find((t) => t.id === tab)?.label}</h1>
@@ -164,7 +164,7 @@ function AdminPanel() {
               <Zap size={11} /> Admin
             </span>
           </div>
-          {renderTab()}
+          <div className="w-full">{renderTab()}</div>
           <p className="mt-10 text-center text-2xs text-content-faint lg:hidden">Signed in as {user?.name}</p>
         </main>
 
