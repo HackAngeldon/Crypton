@@ -69,6 +69,11 @@ interface AppState {
   adminAnnounce: (text: string, severity: Announcement['severity']) => Promise<void>
   adminClearAnnounce: (id: string) => Promise<void>
   adminDeposit: (p: { userId: string; asset: CoinId; amount: number; note?: string; price?: number }) => Promise<void>
+  adminPending: Array<{ tx: Tx; senderName: string; senderEmail: string }>
+  adminRefreshPending: () => Promise<void>
+  adminResolve: (txnId: string, decision: 'approve' | 'reject') => Promise<void>
+  adminDeleteUser: (userId: string) => Promise<void>
+  adminSetRestriction: (p: { userId: string; key: string; value: boolean }) => Promise<void>
 }
 
 let savedCurrency = 'USD'
@@ -316,6 +321,33 @@ export const useApp = create<AppState>((set, get) => {
       if (adminWallet && (p.userId === adminWallet.userId || session?.userId === adminWallet.userId)) {
         set({ adminWallet: await api.adminGetWallet(adminWallet.userId) })
       }
+    },
+
+    adminPending: [],
+    adminRefreshPending: async () => {
+      set({ adminPending: await api.adminPending() })
+    },
+
+    adminResolve: async (txnId, decision) => {
+      await api.adminResolve(txnId, decision)
+      await get().adminRefreshPending()
+      await get().adminRefreshUsers()
+      await get().refresh()
+    },
+
+    adminDeleteUser: async (userId) => {
+      await api.adminDeleteUser(userId)
+      await get().adminRefreshUsers()
+      await get().adminRefreshExtended()
+      await get().refresh()
+    },
+
+    adminSetRestriction: async (p) => {
+      await api.adminSetRestriction(p)
+      await get().adminRefreshUsers()
+      const { adminUsers } = get()
+      const updated = adminUsers.find((u) => u.id === p.userId)
+      if (updated && get().user?.id === p.userId) set({ user: updated })
     },
   }
 })

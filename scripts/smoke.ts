@@ -65,7 +65,7 @@ r = await req("POST", "/auth/login", { email, pin: "777777" });
 ok(r.status === 200 && !!r.data.token, "login works");
 
 r = await req("GET", "/me", undefined, token);
-ok(r.status === 200 && r.data.wallet.balances.tether === 25, "welcome bonus present");
+ok(r.status === 200 && (r.data.wallet.balances.tether ?? 0) === 0 && (r.data.wallet.balances.bitcoin ?? 0) === 0, "new account starts at zero");
 ok(r.status === 200 && Object.keys(r.data.wallet.addresses ?? {}).length >= 16, "every coin has a deposit address");
 
 r = await req("GET", `/auth/pin-length?email=${encodeURIComponent(email)}`);
@@ -81,14 +81,14 @@ ok(r.status === 200, "deposit fiat works");
 r = await req("POST", "/buy", { asset: "bitcoin", fiatAmount: 100, price: 64000, pin: "777777" }, token);
 ok(r.status === 200 && r.data.type === "buy", "buy works");
 
-r = await req("POST", "/swap", { from: "tether", to: "bitcoin", amount: 1, rate: 0.000015625, priceFrom: 1, priceTo: 64000, pin: "9999" }, token);
+r = await req("POST", "/swap", { from: "bitcoin", to: "tether", amount: 0.001, rate: 64000, priceFrom: 64000, priceTo: 1, pin: "9999" }, token);
 ok(r.status === 400 && /Incorrect PIN/.test(r.data.error ?? ""), "wrong PIN rejected for swap");
 
-r = await req("POST", "/swap", { from: "tether", to: "bitcoin", amount: 1, rate: 0.000015625, priceFrom: 1, priceTo: 64000, pin: "777777" }, token);
+r = await req("POST", "/swap", { from: "bitcoin", to: "tether", amount: 0.001, rate: 64000, priceFrom: 64000, priceTo: 1, pin: "777777" }, token);
 ok(r.status === 200 && r.data.received > 0, "swap works with correct PIN");
 
 r = await req("GET", "/transactions", undefined, token);
-ok(r.status === 200 && Array.isArray(r.data) && r.data.length >= 6, "tx list works");
+ok(r.status === 200 && Array.isArray(r.data) && r.data.length >= 4, "tx list works");
 
 console.log("pin change");
 r = await req("POST", "/auth/change-pin", { current: "777777", next: "888888" }, token);
@@ -104,8 +104,11 @@ const atok = adminLogin.data.token as string;
 r = await req("GET", "/admin/users", undefined, atok);
 ok(r.status === 200 && r.data.length >= 2, "admin lists users");
 
-r = await req("POST", "/admin/freeze", { userId: r.data.find((u: { email: string }) => u.email === email)?.id, frozen: true }, atok);
+const freezeId = r.data.find((u: { email: string }) => u.email === email)?.id;
+r = await req("POST", "/admin/freeze", { userId: freezeId, frozen: true }, atok);
 ok(r.status === 200 && r.data.frozen === true, "admin freezes user");
+r = await req("POST", "/admin/freeze", { userId: freezeId, frozen: false }, atok);
+ok(r.status === 200 && r.data.frozen === false, "admin unfreezes user");
 
 r = await req("POST", "/admin/override-price", { asset: "bitcoin", price: 99999 }, atok);
 ok(r.status === 200, "price override set");
@@ -133,12 +136,47 @@ r = await req("GET", "/admin/wallet?userId=" + encodeURIComponent(adminId), unde
 const adminTetherBefore = r.data.balances.tether ?? 0;
 
 r = await req("POST", "/send-internal", { toEmail: "admin@crypton.app", asset: "tether", amount: 10, price: 1, pin: "888888" }, token);
-ok(r.status === 200 && r.data.type === "send", "internal transfer works");
+ok(r.status === 200 && r.data.type === "send" && r.data.status === "pending", "internal transfer held as pending");
+const pendingId = r.data.id as string;
 
 r = await req("GET", "/me", undefined, token);
-ok(Math.abs((r.data.wallet.balances.tether ?? 0) - (senderTetherBefore - 10)) < 1e-9, "sender balance debited");
+ok(Math.abs((r.data.wallet.balances.tether ?? 0) - (senderTetherBefore - 10)) < 1e-9, "sender balance debited immediately");
+
+r = await req("GET", "/admin/pending", undefined, atok);
+ok(Array.isArray(r.data) && r.data.some((p: { tx: { id: string } }) => p.tx.id === pendingId), "transfer appears in admin pending queue");
+
+r = await req("POST", "/admin/resolve", { txnId: pendingId, decision: "approve" }, atok);
+ok(r.status === 200 && r.data.status === "confirmed", "admin approves transfer");
+
 r = await req("GET", "/admin/wallet?userId=" + encodeURIComponent(adminId), undefined, atok);
-ok(Math.abs((r.data.balances.tether ?? 0) - (adminTetherBefore + 10)) < 1e-9, "recipient balance credited");
+ok(Math.abs((r.data.balances.tether ?? 0) - (adminTetherBefore + 10)) < 1e-9, "recipient credited after approval");
+
+r = await req("POST", "/send-internal", { toEmail: "admin@crypton.app", asset: "tether", amount: 5, price: 1, pin: "888888" }, token);
+const rejectId = r.data.id as string;
+r = await req("GET", "/me", undefined, token);
+const afterSecondSend = r.data.wallet.balances.tether ?? 0;
+r = await req("POST", "/admin/resolve", { txnId: rejectId, decision: "reject" }, atok);
+ok(r.status === 200 && r.data.status === "failed", "admin rejects transfer");
+r = await req("GET", "/me", undefined, token);
+ok(Math.abs((r.data.wallet.balances.tether ?? 0) - (afterSecondSend + 5)) < 1e-9, "rejected transfer refunds sender");
+
+console.log("reset pin / restrictions / delete");
+r = await req("POST", "/auth/request-reset", { email }, token);
+ok(r.status === 200 && r.data.sent === true && String(r.data.code).length === 6, "reset code requested");
+r = await req("POST", "/auth/reset-pin", { email, code: r.data.code, newPin: "112233" }, token);
+ok(r.status === 200, "PIN reset with code");
+r = await req("POST", "/auth/login", { email, pin: "112233" });
+ok(r.status === 200, "new PIN logs in after reset");
+
+r = await req("POST", "/admin/restriction", { userId, key: "swap", value: true }, atok);
+ok(r.status === 200, "admin restricts swaps");
+r = await req("POST", "/swap", { from: "bitcoin", to: "tether", amount: 0.001, rate: 64000, priceFrom: 64000, priceTo: 1, pin: "112233" }, token);
+ok(r.status === 400 && /restricted/.test(r.data.error ?? ""), "restricted user cannot swap");
+
+r = await req("POST", "/admin/delete-user", { userId }, atok);
+ok(r.status === 200, "admin deletes user");
+r = await req("GET", "/admin/users", undefined, atok);
+ok(!r.data.some((u: { id: string }) => u.id === userId), "deleted user is gone");
 
 r = await req("POST", "/admin/announce", { text: "Test notice", severity: "warning" }, atok);
 ok(r.status === 200, "announcement broadcast");

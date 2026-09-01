@@ -156,6 +156,7 @@ CREATE TABLE IF NOT EXISTS crypton_users (
   verified INTEGER NOT NULL DEFAULT 0,
   kyc_level INTEGER NOT NULL DEFAULT 0,
   color TEXT NOT NULL,
+  restrictions JSONB NOT NULL DEFAULT '{}',
   created_at BIGINT NOT NULL,
   last_seen BIGINT NOT NULL
 );
@@ -189,6 +190,12 @@ CREATE TABLE IF NOT EXISTS crypton_sessions (
   created_at BIGINT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS crypton_reset_codes (
+  email TEXT PRIMARY KEY,
+  code TEXT NOT NULL,
+  expires_at BIGINT NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS crypton_meta (
   id INTEGER PRIMARY KEY CHECK (id = 1),
   seed_version TEXT,
@@ -201,12 +208,23 @@ CREATE TABLE IF NOT EXISTS crypton_meta (
 );
 `;
 
+async function migrate(): Promise<void> {
+  const cols = await driver.query(
+    "SELECT column_name FROM information_schema.columns WHERE table_name = 'crypton_users'",
+    []
+  );
+  if (!cols.rows.some((r) => String(r.column_name) === "restrictions")) {
+    await driver.exec("ALTER TABLE crypton_users ADD COLUMN restrictions JSONB NOT NULL DEFAULT '{}'");
+  }
+}
+
 let initPromise: Promise<void> | null = null;
 
 export function ensureInit(): Promise<void> {
   if (!initPromise) {
     initPromise = (async () => {
       await driver.exec(SCHEMA);
+      await migrate();
       await seedIfNeeded();
     })().catch((err) => {
       initPromise = null;

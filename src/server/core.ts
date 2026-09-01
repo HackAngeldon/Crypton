@@ -14,6 +14,7 @@ export interface SessionUser {
   verified: boolean;
   kycLevel: number;
   color: string;
+  restrictions: Record<string, boolean>;
   createdAt: number;
   lastSeen: number;
 }
@@ -31,6 +32,7 @@ function rowToUser(r: Row): SessionUser {
     verified: Number(r.verified) === 1,
     kycLevel: Number(r.kyc_level) as SessionUser["kycLevel"],
     color: String(r.color),
+    restrictions: (r.restrictions as Record<string, boolean>) ?? {},
     createdAt: Number(r.created_at),
     lastSeen: Number(r.last_seen),
   };
@@ -172,7 +174,7 @@ export async function register(name: string, email: string, pin: string): Promis
   const salt = rb(16).toString("hex");
   const pinHash = scryptSync(pin, salt, 32).toString("hex");
   const now = Date.now();
-  const user = { id: genId("u"), name: name.trim(), email: norm, pinLen: pin.length, role: "user" as const, frozen: false, verified: false, kycLevel: 0, color: "from-cyan-400 to-violet-500", createdAt: now, lastSeen: now };
+  const user = { id: genId("u"), name: name.trim(), email: norm, pinLen: pin.length, role: "user" as const, frozen: false, verified: false, kycLevel: 0, color: "from-cyan-400 to-violet-500", restrictions: {}, createdAt: now, lastSeen: now };
 
   await db.tx(async (cx) => {
     await cx
@@ -182,14 +184,11 @@ export async function register(name: string, email: string, pin: string): Promis
       )
       .run(user.id, user.name, user.email, salt, pinHash, user.pinLen, user.color, user.createdAt, user.lastSeen);
 
-    const wallet: Wallet = { userId: user.id, balances: { tether: 25, "usd-coin": 25 }, fiat: 0, addresses: {} };
+    const wallet: Wallet = { userId: user.id, balances: {}, fiat: 0, addresses: {} };
     await ensureWalletAddresses(cx, wallet);
     await cx
       .prepare("INSERT INTO crypton_wallets (user_id, balances, fiat, addresses) VALUES (?, ?, 0, ?)")
       .run(user.id, JSON.stringify(wallet.balances), JSON.stringify(wallet.addresses));
-
-    await insertTx(cx, makeTxRow({ userId: user.id, type: "receive", asset: "tether", amount: 25, direction: "in", usdValue: 25, timestamp: now, note: "Welcome bonus" }));
-    await insertTx(cx, makeTxRow({ userId: user.id, type: "receive", asset: "usd-coin", amount: 25, direction: "in", usdValue: 25, timestamp: now, note: "Welcome bonus" }));
   });
 
   const token = newToken();
@@ -253,6 +252,48 @@ export async function pinLength(email: string): Promise<number> {
   return Number(row?.pin_len ?? 6);
 }
 
+export async function requestPinReset(email: string): Promise<{ sent: boolean; code: string }> {
+  const db = await getDb();
+  const norm = email.trim().toLowerCase();
+  const exists = await db.prepare("SELECT 1 FROM crypton_users WHERE email = ?").get(norm);
+  if (!exists) return { sent: false, code: "" };
+  const code = String(Math.floor(100000 + Math.random() * 900000));
+  const expires = Date.now() + 10 * 60 * 1000;
+  await db
+    .prepare(
+      `INSERT INTO crypton_reset_codes (email, code, expires_at) VALUES (?, ?, ?)
+       ON CONFLICT (email) DO UPDATE SET code = EXCLUDED.code, expires_at = EXCLUDED.expires_at`
+    )
+    .run(norm, code, expires);
+  return { sent: true, code };
+}
+
+export async function resetPin(email: string, code: string, newPin: string): Promise<void> {
+  const db = await getDb();
+  const norm = email.trim().toLowerCase();
+  if (!/^\d{4,6}$/.test(newPin)) throw new Error("New PIN must be 4–6 digits.");
+  const row = (await db.prepare("SELECT * FROM crypton_reset_codes WHERE email = ?").get(norm)) as
+    | { code: string; expires_at: number }
+    | undefined;
+  if (!row || String(row.code) !== code.trim() || Number(row.expires_at) < Date.now()) {
+    throw new Error("Invalid or expired reset code.");
+  }
+  const { scryptSync, randomBytes: rb } = await import("node:crypto");
+  const salt = rb(16).toString("hex");
+  const pinHash = scryptSync(newPin, salt, 32).toString("hex");
+  await db
+    .prepare("UPDATE crypton_users SET pin_salt = ?, pin_hash = ?, pin_len = ? WHERE email = ?")
+    .run(salt, pinHash, newPin.length, norm);
+  await db.prepare("DELETE FROM crypton_reset_codes WHERE email = ?").run(norm);
+}
+
+/** Throws if the account has the given feature restricted by an admin. */
+async function assertNotRestricted(user: SessionUser, key: string, label: string): Promise<void> {
+  if (user.restrictions?.[key]) {
+    throw new Error(`${label} is restricted on this account. Contact support.`);
+  }
+}
+
 export async function me(token: string): Promise<{ user: SessionUser; wallet: Wallet }> {
   const db = await getDb();
   const user = await userByToken(db, token);
@@ -282,6 +323,7 @@ export async function send(
   await verifyUserPin(db, token, params.pin);
   const user = await userByToken(db, token);
   if (!user) throw new Error("Not signed in.");
+  await assertNotRestricted(user, "send", "Sending");
   const w = (await db.prepare("SELECT * FROM crypton_wallets WHERE user_id = ?").get(user.id)) as Row | undefined;
   if (!w) throw new Error("Wallet not found.");
   const wallet = rowToWallet(w);
@@ -298,7 +340,7 @@ export async function send(
   const price = params.price ?? 0;
   const txRow = makeTxRow({
     userId: user.id, type: "send", asset: params.asset, amount: params.amount, direction: "out",
-    counterparty: params.address, fee, usdValue: params.amount * price, timestamp: Date.now(),
+    counterparty: params.address, fee, usdValue: params.amount * price, status: "pending", timestamp: Date.now(),
   });
 
   await db.tx(async (cx) => {
@@ -332,6 +374,7 @@ export async function internalSend(
   await verifyUserPin(db, token, params.pin);
   const sender = await userByToken(db, token);
   if (!sender) throw new Error("Not signed in.");
+  await assertNotRestricted(sender, "transfer", "Transfers");
   if (params.amount <= 0) throw new Error("Amount must be greater than zero.");
 
   const recipient = (await db
@@ -345,30 +388,19 @@ export async function internalSend(
   const bal = senderWallet.balances[params.asset] ?? 0;
   if (bal < params.amount) throw new Error(`Insufficient ${COIN_MAP[params.asset].symbol} balance.`);
 
-  const rw = (await db.prepare("SELECT * FROM crypton_wallets WHERE user_id = ?").get(String(recipient.id))) as Row | undefined;
-  const recipientWallet = rw ? rowToWallet(rw) : { userId: String(recipient.id), balances: {}, fiat: 0, addresses: {} };
-
   senderWallet.balances[params.asset] = bal - params.amount;
-  recipientWallet.balances[params.asset] = (recipientWallet.balances[params.asset] ?? 0) + params.amount;
 
   const price = params.price ?? 0;
   const ts = Date.now();
   const txOut = makeTxRow({
     userId: sender.id, type: "send", asset: params.asset, amount: params.amount, direction: "out",
-    counterparty: String(recipient.email), fee: 0, usdValue: params.amount * price, timestamp: ts,
+    counterparty: String(recipient.email), fee: 0, usdValue: params.amount * price, status: "pending", timestamp: ts,
     note: `Crypton transfer to ${String(recipient.name)}`,
-  });
-  const txIn = makeTxRow({
-    userId: String(recipient.id), type: "receive", asset: params.asset, amount: params.amount, direction: "in",
-    counterparty: sender.email, fee: 0, usdValue: params.amount * price, timestamp: ts,
-    note: `Crypton transfer from ${sender.name}`,
   });
 
   await db.tx(async (cx) => {
     await cx.prepare("UPDATE crypton_wallets SET balances = ? WHERE user_id = ?").run(JSON.stringify(senderWallet.balances), sender.id);
-    await cx.prepare("UPDATE crypton_wallets SET balances = ? WHERE user_id = ?").run(JSON.stringify(recipientWallet.balances), String(recipient.id));
     await insertTx(cx, txOut);
-    await insertTx(cx, txIn);
   });
   return rowToTx(txOut);
 }
@@ -395,6 +427,7 @@ export async function buy(token: string, params: { asset: CoinId; fiatAmount: nu
   await verifyUserPin(db, token, params.pin);
   const user = await userByToken(db, token);
   if (!user) throw new Error("Not signed in.");
+  await assertNotRestricted(user, "buy", "Purchases");
   const w = (await db.prepare("SELECT * FROM crypton_wallets WHERE user_id = ?").get(user.id)) as Row | undefined;
   if (!w) throw new Error("Wallet not found.");
   const wallet = rowToWallet(w);
@@ -419,6 +452,7 @@ export async function buyWithCard(token: string, params: { asset: CoinId; fiatAm
   const db = await getDb();
   const user = await userByToken(db, token);
   if (!user) throw new Error("Not signed in.");
+  await assertNotRestricted(user, "buy", "Purchases");
   const w = (await db.prepare("SELECT * FROM crypton_wallets WHERE user_id = ?").get(user.id)) as Row | undefined;
   if (!w) throw new Error("Wallet not found.");
   const wallet = rowToWallet(w);
@@ -458,6 +492,7 @@ export async function swap(
   await verifyUserPin(db, token, params.pin);
   const user = await userByToken(db, token);
   if (!user) throw new Error("Not signed in.");
+  await assertNotRestricted(user, "swap", "Swaps");
   const w = (await db.prepare("SELECT * FROM crypton_wallets WHERE user_id = ?").get(user.id)) as Row | undefined;
   if (!w) throw new Error("Wallet not found.");
   const wallet = rowToWallet(w);
@@ -604,6 +639,103 @@ export async function adminToggleFreeze(token: string, userId: string, frozen: b
   await db.prepare("UPDATE crypton_users SET frozen = ? WHERE id = ?").run(frozen ? 1 : 0, userId);
   const fresh = (await db.prepare("SELECT * FROM crypton_users WHERE id = ?").get(userId)) as Row;
   return rowToUser(fresh);
+}
+
+export async function adminDeleteUser(token: string, userId: string): Promise<void> {
+  const db = await getDb();
+  const admin = await requireAdmin(db, token);
+  if (userId === admin.id) throw new Error("You can't delete your own account.");
+  const target = (await db.prepare("SELECT role FROM crypton_users WHERE id = ?").get(userId)) as { role: string } | undefined;
+  if (!target) throw new Error("User not found.");
+  if (target.role === "admin") throw new Error("Cannot delete an admin account.");
+  await db.tx(async (cx) => {
+    await cx.prepare("DELETE FROM crypton_sessions WHERE user_id = ?").run(userId);
+    await cx.prepare("DELETE FROM crypton_transactions WHERE user_id = ?").run(userId);
+    await cx.prepare("DELETE FROM crypton_wallets WHERE user_id = ?").run(userId);
+    await cx.prepare("DELETE FROM crypton_users WHERE id = ?").run(userId);
+  });
+}
+
+export async function adminSetRestriction(
+  token: string,
+  params: { userId: string; key: string; value: boolean }
+): Promise<SessionUser> {
+  const db = await getDb();
+  await requireAdmin(db, token);
+  const keys = ["send", "transfer", "swap", "buy"];
+  if (!keys.includes(params.key)) throw new Error("Unknown restriction.");
+  const row = (await db.prepare("SELECT * FROM crypton_users WHERE id = ?").get(params.userId)) as Row | undefined;
+  if (!row) throw new Error("User not found.");
+  const restrictions = { ...((row.restrictions as Record<string, boolean>) ?? {}) };
+  if (params.value) restrictions[params.key] = true;
+  else delete restrictions[params.key];
+  await db.prepare("UPDATE crypton_users SET restrictions = ? WHERE id = ?").run(JSON.stringify(restrictions), params.userId);
+  const fresh = (await db.prepare("SELECT * FROM crypton_users WHERE id = ?").get(params.userId)) as Row;
+  return rowToUser(fresh);
+}
+
+export async function adminPending(
+  token: string
+): Promise<Array<{ tx: Tx; senderName: string; senderEmail: string }>> {
+  const db = await getDb();
+  await requireAdmin(db, token);
+  const rows = await db
+    .prepare(
+      `SELECT t.*, u.name AS sender_name, u.email AS sender_email
+       FROM crypton_transactions t JOIN crypton_users u ON u.id = t.user_id
+       WHERE t.status = 'pending' ORDER BY t.timestamp ASC`
+    )
+    .all();
+  return rows.map((r) => ({
+    tx: rowToTx(r),
+    senderName: String(r.sender_name),
+    senderEmail: String(r.sender_email),
+  }));
+}
+
+export async function adminResolve(
+  token: string,
+  params: { txnId: string; decision: "approve" | "reject" }
+): Promise<Tx> {
+  const db = await getDb();
+  await requireAdmin(db, token);
+  const tx = (await db.prepare("SELECT * FROM crypton_transactions WHERE id = ? AND status = 'pending'").get(params.txnId)) as Row | undefined;
+  if (!tx) throw new Error("Pending transaction not found.");
+  const t = rowToTx(tx);
+  const amount = t.amount;
+  const isInternal = (tx.note as string)?.startsWith("Crypton transfer") ?? false;
+
+  await db.tx(async (cx) => {
+    if (params.decision === "approve") {
+      if (isInternal) {
+        const recipient = (await cx
+          .prepare("SELECT id, name FROM crypton_users WHERE email = ?")
+          .get((t.counterparty ?? "").trim().toLowerCase())) as { id: string; name: string } | undefined;
+        if (recipient) {
+          const rw = (await cx.prepare("SELECT * FROM crypton_wallets WHERE user_id = ?").get(recipient.id)) as Row | undefined;
+          const wallet = rw ? rowToWallet(rw) : { userId: recipient.id, balances: {}, fiat: 0, addresses: {} };
+          wallet.balances[t.asset] = (wallet.balances[t.asset] ?? 0) + amount;
+          await cx.prepare("UPDATE crypton_wallets SET balances = ? WHERE user_id = ?").run(JSON.stringify(wallet.balances), recipient.id);
+          const sender = (await cx.prepare("SELECT name FROM crypton_users WHERE id = ?").get(t.userId)) as { name: string } | undefined;
+          await insertTx(cx, makeTxRow({
+            userId: recipient.id, type: "receive", asset: t.asset, amount, direction: "in",
+            counterparty: t.userId, fee: 0, usdValue: t.usdValue, timestamp: Date.now(),
+            note: `Crypton transfer from ${sender?.name ?? "another user"}`,
+          }));
+        }
+      }
+      await cx.prepare("UPDATE crypton_transactions SET status = 'confirmed' WHERE id = ?").run(params.txnId);
+    } else {
+      const sw = (await cx.prepare("SELECT * FROM crypton_wallets WHERE user_id = ?").get(t.userId)) as Row;
+      const wallet = rowToWallet(sw);
+      wallet.balances[t.asset] = (wallet.balances[t.asset] ?? 0) + amount + t.fee;
+      await cx.prepare("UPDATE crypton_wallets SET balances = ? WHERE user_id = ?").run(JSON.stringify(wallet.balances), t.userId);
+      await cx.prepare("UPDATE crypton_transactions SET status = 'failed' WHERE id = ?").run(params.txnId);
+    }
+  });
+
+  const fresh = (await db.prepare("SELECT * FROM crypton_transactions WHERE id = ?").get(params.txnId)) as Row;
+  return rowToTx(fresh);
 }
 
 export async function adminSetSpread(token: string, pct: number): Promise<DbMeta> {

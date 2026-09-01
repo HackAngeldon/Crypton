@@ -176,7 +176,7 @@ export function Send() {
             />
             <p className="mt-2 flex items-center gap-1.5 px-0.5 text-xs text-content-faint">
               <Users size={13} className="text-brand" />
-              {mode === 'internal' ? 'Send instantly to another Crypton wallet — no network fee.' : 'Send to any wallet on any chain.'}
+              {mode === 'internal' ? 'Send to another Crypton wallet — held for approval.' : 'Send to any wallet on any chain — held for approval.'}
             </p>
           </div>
 
@@ -327,7 +327,7 @@ export function Send() {
                     <span className="font-semibold">{lookup.name ?? 'Crypton user'}</span>
                     <span className="ml-1 text-xs text-content-faint">{toEmail}</span>
                   </Row>
-                  <Row label="Rail"><span>Crypton transfer · instant</span></Row>
+                  <Row label="Rail"><span>Crypton transfer · pending approval</span></Row>
                   <Row label="Network fee"><span className="tabular text-up">Free</span></Row>
                   <Row label="Total deducted"><span className="tabular font-semibold text-content">{formatCoin(amt, asset)}</span></Row>
                 </>
@@ -342,7 +342,7 @@ export function Send() {
               )}
             </dl>
             <p className="mt-4 flex items-center justify-center gap-1.5 rounded-xl bg-warn/10 px-3 py-2 text-xs text-warn">
-              <Info size={13} /> {mode === 'internal' ? 'This transfer settles instantly and cannot be undone.' : 'This action cannot be undone. Double-check the address.'}
+              <Info size={13} /> {mode === 'internal' ? 'This transfer is submitted for admin approval and cannot be edited.' : 'This action cannot be undone. Double-check the address.'}
             </p>
           </div>
           <div className="mt-5 grid grid-cols-2 gap-2.5">
@@ -375,8 +375,8 @@ export function Send() {
           title={`${formatCoin(amt, asset)} sent`}
           desc={
             mode === 'internal'
-              ? `Delivered instantly to ${lookup.name ?? 'your contact'}. Reference ${txId.slice(-8).toUpperCase()}.`
-              : `Arriving on the ${meta.chain} network in ${FEES.find((f) => f.id === feeTier)!.eta}. Reference ${txId.slice(-8).toUpperCase()}.`
+              ? `Submitted for approval to ${lookup.name ?? 'your contact'}. Funds will move once approved. Reference ${txId.slice(-8).toUpperCase()}.`
+              : `Submitted for approval on the ${meta.chain} network. Funds will move once approved. Reference ${txId.slice(-8).toUpperCase()}.`
           }
           onDone={() => nav('/dashboard')}
           onView={() => nav('/activity')}

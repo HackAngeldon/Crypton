@@ -100,6 +100,7 @@ interface ServerUser {
   verified: boolean
   kycLevel: 0 | 1 | 2
   color: string
+  restrictions: Record<string, boolean>
   createdAt: number
   lastSeen: number
 }
@@ -177,6 +178,14 @@ export const api = {
 
   async changePin(current: string, next: string): Promise<void> {
     await post('/auth/change-pin', { current, next })
+  },
+
+  async requestPinReset(email: string): Promise<{ sent: boolean; code: string }> {
+    return post('/auth/request-reset', { email })
+  },
+
+  async resetPin(email: string, code: string, newPin: string): Promise<void> {
+    await post('/auth/reset-pin', { email, code, newPin })
   },
 
   pinLengthFor(email: string): Promise<number> {
@@ -279,6 +288,23 @@ export const api = {
 
   async adminLedger(): Promise<Tx[]> {
     return get<Tx[]>('/admin/ledger')
+  },
+
+  async adminPending(): Promise<Array<{ tx: Tx; senderName: string; senderEmail: string }>> {
+    return get('/admin/pending')
+  },
+
+  async adminResolve(txnId: string, decision: 'approve' | 'reject'): Promise<Tx> {
+    return post('/admin/resolve', { txnId, decision })
+  },
+
+  async adminDeleteUser(userId: string): Promise<void> {
+    await post('/admin/delete-user', { userId })
+  },
+
+  async adminSetRestriction(params: { userId: string; key: string; value: boolean }): Promise<User> {
+    const u = await post<ServerUser>('/admin/restriction', params)
+    return mapUser(u)
   },
 
   async adminAllWallets(): Promise<AdminWalletRow[]> {

@@ -11,6 +11,7 @@ export interface User {
   verified: boolean
   kycLevel: 0 | 1 | 2
   color: string
+  restrictions: Record<string, boolean>
   createdAt: number
   lastSeen: number
 }

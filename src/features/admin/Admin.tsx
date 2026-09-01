@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import {
   LayoutDashboard, Users, CandlestickChart, Megaphone, BookOpenText,
   Snowflake, ShieldCheck, Search, Trash2, Plus, Minus, Zap, Radio, Flame, Eye, EyeOff,
-  Wallet, Copy, Check, LogOut,
+  Wallet, Copy, Check, LogOut, Clock,
 } from 'lucide-react'
 import { useApp } from '@/store/app'
 import { usePriceFeed } from '@/lib/priceFeed'
@@ -14,6 +14,7 @@ import { LogoMark, Wordmark } from '@/components/ui/Logo'
 import { Sheet } from '@/components/ui/Sheet'
 import { CoinIcon } from '@/components/CoinIcon'
 import { TextInput } from '@/components/ui/Input'
+import { Toggle } from '@/features/settings/Settings'
 import { Button } from '@/components/ui/Button'
 import { formatUsd, formatCoin, timeAgo, shortAddr } from '@/lib/format'
 import type { CoinId, User } from '@/types'
@@ -51,6 +52,7 @@ function AdminPanel() {
   const nav = useNavigate()
   const adminRefreshUsers = useApp((s) => s.adminRefreshUsers)
   const adminRefreshExtended = useApp((s) => s.adminRefreshExtended)
+  const adminRefreshPending = useApp((s) => s.adminRefreshPending)
   const adminUsers = useApp((s) => s.adminUsers)
   const adminWallets = useApp((s) => s.adminWallets)
   const txs = useApp((s) => s.txs)
@@ -62,7 +64,8 @@ function AdminPanel() {
   useEffect(() => {
     void adminRefreshUsers()
     void adminRefreshExtended()
-  }, [adminRefreshUsers, adminRefreshExtended])
+    void adminRefreshPending()
+  }, [adminRefreshUsers, adminRefreshExtended, adminRefreshPending])
 
   const frozenCount = adminUsers.filter((u) => u.frozen).length
   const prices = usePriceFeed((s) => s.markets)
@@ -351,13 +354,17 @@ function UserDetail({ user, onClose }: { user: User | null; onClose: () => void 
   const [balance, setBalance] = useState<Partial<Record<CoinId, string>>>({})
   const [depositCoin, setDepositCoin] = useState<CoinId>('bitcoin')
   const [depositAmount, setDepositAmount] = useState('')
+  const [confirmDelete, setConfirmDelete] = useState(false)
   const adminSetBalance = useApp((s) => s.adminSetBalance)
   const adminDeposit = useApp((s) => s.adminDeposit)
   const adminToggleFreeze = useApp((s) => s.adminToggleFreeze)
   const adminOpenUser = useApp((s) => s.adminOpenUser)
+  const adminSetRestriction = useApp((s) => s.adminSetRestriction)
+  const adminDeleteUser = useApp((s) => s.adminDeleteUser)
   const adminWallet = useApp((s) => s.adminWallet)
   const toast = useApp((s) => s.toast)
   const markets = usePriceFeed((s) => s.markets)
+  const liveUser = useApp((s) => s.adminUsers.find((u) => u.id === user?.id))
 
   useEffect(() => {
     if (user) void adminOpenUser(user.id)
@@ -367,6 +374,18 @@ function UserDetail({ user, onClose }: { user: User | null; onClose: () => void 
   if (!user) return null
   const w = adminWallet && adminWallet.userId === user.id ? adminWallet : null
   const held = (Object.entries(w?.balances ?? {}) as Array<[CoinId, number]>).filter(([, a]) => a > 0)
+  const restrictions = liveUser?.restrictions ?? user.restrictions ?? {}
+
+  const toggleRestriction = async (key: string, value: boolean) => {
+    await adminSetRestriction({ userId: user.id, key, value })
+    toast({ kind: 'success', title: value ? 'Restricted' : 'Allowed', desc: `${key} ${value ? 'disabled' : 'enabled'} for ${user.name}` })
+  }
+
+  const doDelete = async () => {
+    await adminDeleteUser(user.id)
+    onClose()
+    toast({ kind: 'success', title: 'Account deleted', desc: `${user.name}'s account was removed.` })
+  }
 
   const apply = async (id: CoinId, note?: string) => {
     const v = parseFloat(balance[id] ?? '')
@@ -469,6 +488,45 @@ function UserDetail({ user, onClose }: { user: User | null; onClose: () => void 
           </p>
         </div>
       </div>
+
+      <div className="mt-5">
+        <p className="text-2xs font-semibold uppercase tracking-wider text-content-faint">Restricted features</p>
+        <div className="mt-2 divide-y divide-hairline rounded-2xl border border-hairline bg-surface px-3">
+          {[
+            { key: 'send', label: 'Withdrawals', desc: 'Send coins to an external address' },
+            { key: 'transfer', label: 'Transfers', desc: 'Send to another Crypton wallet' },
+            { key: 'swap', label: 'Swaps', desc: 'Exchange between assets' },
+            { key: 'buy', label: 'Purchases', desc: 'Buy crypto with a card' },
+          ].map((r) => (
+            <div key={r.key} className="flex items-center justify-between gap-3 py-2.5">
+              <div>
+                <p className="text-sm font-semibold text-content">{r.label}</p>
+                <p className="text-[11px] text-content-faint">{r.desc}</p>
+              </div>
+              <Toggle on={!!restrictions[r.key]} onChange={(v) => void toggleRestriction(r.key, v)} />
+            </div>
+          ))}
+        </div>
+      </div>
+
+      {confirmDelete ? (
+        <div className="mt-4 rounded-2xl border border-down/30 bg-down/5 p-3">
+          <p className="text-sm font-semibold text-down">Delete {user.name}?</p>
+          <p className="mt-0.5 text-xs text-content-faint">Their wallet, transactions and account will be permanently removed. This can't be undone.</p>
+          <div className="mt-3 grid grid-cols-2 gap-2.5">
+            <Button variant="ghost" size="sm" onClick={() => setConfirmDelete(false)}>Cancel</Button>
+            <button onClick={() => void doDelete()} className="btn h-10 rounded-xl bg-down/15 text-down font-semibold">Yes, delete</button>
+          </div>
+        </div>
+      ) : (
+        <button
+          onClick={() => setConfirmDelete(true)}
+          disabled={user.role === 'admin'}
+          className="mt-4 flex w-full items-center justify-center gap-1.5 rounded-xl border border-down/25 py-2.5 text-xs font-bold text-down disabled:opacity-40"
+        >
+          <Trash2 size={14} /> Delete account
+        </button>
+      )}
 
       <p className="mt-4 text-2xs text-content-faint">Last seen {timeAgo(user.lastSeen)} · joined {new Date(user.createdAt).toLocaleDateString()} · KYC level {user.kycLevel}</p>
     </Sheet>
@@ -637,6 +695,9 @@ function BroadcastTab() {
 
 function LedgerTab({ users }: { users: User[] }) {
   const ledger = useApp((s) => s.adminLedger)
+  const pending = useApp((s) => s.adminPending)
+  const adminResolve = useApp((s) => s.adminResolve)
+  const toast = useApp((s) => s.toast)
   const allTxs = useMemo(() => [...ledger].sort((a, b) => b.timestamp - a.timestamp), [ledger])
   const [filter, setFilter] = useState<'all' | 'send' | 'receive' | 'swap' | 'buy' | 'system'>('all')
   const nameOf = (id: string) => users.find((u) => u.id === id)?.name ?? 'unknown'
@@ -649,8 +710,40 @@ function LedgerTab({ users }: { users: User[] }) {
     return t.type === 'admin_credit' || t.type === 'admin_debit'
   })
 
+  const decide = async (id: string, decision: 'approve' | 'reject') => {
+    await adminResolve(id, decision)
+    toast({
+      kind: decision === 'approve' ? 'success' : 'warning',
+      title: decision === 'approve' ? 'Approved' : 'Rejected',
+      desc: decision === 'approve' ? 'Transaction completed.' : 'Funds refunded to the sender.',
+    })
+  }
+
   return (
     <div className="animate-rise-in">
+      {pending.length > 0 && (
+        <div className="mb-4 rounded-2xl border border-warn/30 bg-warn/5 p-4">
+          <p className="flex items-center gap-2 text-sm font-bold text-content">
+            <Clock size={15} className="text-warn" /> Pending approvals · {pending.length}
+          </p>
+          <p className="mt-0.5 text-xs text-content-faint">Transfers and withdrawals are held until you approve or reject them.</p>
+          <div className="mt-3 space-y-2">
+            {pending.map(({ tx, senderName }) => (
+              <div key={tx.id} className="flex items-center gap-2.5 rounded-xl border border-hairline bg-surface px-3 py-2.5 text-xs">
+                <CoinIcon coin={tx.asset} size={26} />
+                <div className="min-w-0 flex-1">
+                  <p className="truncate font-semibold text-content">{senderName} · {COIN_MAP[tx.asset].symbol}</p>
+                  <p className="truncate text-[10px] text-content-faint">{tx.note || tx.counterparty} · {timeAgo(tx.timestamp)}</p>
+                </div>
+                <span className="tabular font-semibold text-content">−{formatCoin(tx.amount, tx.asset)}</span>
+                <button onClick={() => void decide(tx.id, 'approve')} className="rounded-lg bg-up/15 px-2.5 py-1.5 text-[10px] font-bold text-up">Approve</button>
+                <button onClick={() => void decide(tx.id, 'reject')} className="rounded-lg bg-down/15 px-2.5 py-1.5 text-[10px] font-bold text-down">Reject</button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
       <div className="flex gap-2 overflow-x-auto no-scrollbar">
         {(['all', 'send', 'receive', 'swap', 'buy', 'system'] as const).map((f) => (
           <button key={f} onClick={() => setFilter(f)} className={`chip ${filter === f ? '!bg-brand/20 !border-brand/40 !text-brand' : ''}`}>{f}</button>

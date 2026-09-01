@@ -7,7 +7,8 @@ import { Button } from '@/components/ui/Button'
 import { Field, PinDots, TextInput } from '@/components/ui/Input'
 import { PinPad, usePinGate } from './PinPad'
 
-type Step = 'welcome' | 'register' | 'login' | 'pin'
+type Step = 'welcome' | 'register' | 'login' | 'pin' | 'reset'
+type ResetStep = 'email' | 'code' | 'newpin'
 
 export function Onboarding() {
   const [step, setStep] = useState<Step>('welcome')
@@ -17,6 +18,11 @@ export function Onboarding() {
   const [email, setEmail] = useState('')
   const [pending, setPending] = useState(false)
   const [localErr, setLocalErr] = useState('')
+  const [resetStep, setResetStep] = useState<ResetStep>('email')
+  const [resetEmail, setResetEmail] = useState('')
+  const [resetCode, setResetCode] = useState('')
+  const [resetSentCode, setResetSentCode] = useState('')
+  const [resetBusy, setResetBusy] = useState(false)
   const login = useApp((s) => s.login)
   const register = useApp((s) => s.register)
 
@@ -43,6 +49,31 @@ export function Onboarding() {
 
   const pinGate = usePinGate(submitPin, pinLen)
 
+  const submitNewPin = useMemo(() => {
+    return (pin: string) => {
+      void (async () => {
+        setResetBusy(true)
+        setLocalErr('')
+        try {
+          await api.resetPin(resetEmail, resetSentCode, pin)
+          setEmail(resetEmail)
+          setResetEmail('')
+          setResetCode('')
+          setResetSentCode('')
+          setStep('login')
+        } catch (e) {
+          resetGate.fail()
+          setLocalErr((e as Error).message)
+        } finally {
+          setResetBusy(false)
+        }
+      })()
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [resetEmail, resetSentCode])
+
+  const resetGate = usePinGate(submitNewPin, 6)
+
   useEffect(() => {
     if (step === 'pin') {
       setLocalErr('')
@@ -50,6 +81,14 @@ export function Onboarding() {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [step, pinLen])
+
+  useEffect(() => {
+    if (step === 'reset' && resetStep === 'newpin') {
+      setLocalErr('')
+      resetGate.setPin('')
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [step, resetStep])
 
   const goRegister = () => {
     setStep('register')
@@ -70,6 +109,42 @@ export function Onboarding() {
         .catch(() => {})
     }
     setStep('pin')
+  }
+  const goForgotPin = () => {
+    setResetStep('email')
+    setResetEmail(email)
+    setResetCode('')
+    setResetSentCode('')
+    setLocalErr('')
+    setStep('reset')
+  }
+  const requestReset = () => {
+    setLocalErr('')
+    void (async () => {
+      setResetBusy(true)
+      try {
+        const res = await api.requestPinReset(resetEmail)
+        if (!res.sent) {
+          setLocalErr('No account found for that email.')
+          return
+        }
+        setResetSentCode(res.code)
+        setResetCode('')
+        setResetStep('code')
+      } catch (e) {
+        setLocalErr((e as Error).message)
+      } finally {
+        setResetBusy(false)
+      }
+    })()
+  }
+  const submitResetCode = () => {
+    setLocalErr('')
+    if (resetCode.trim() === resetSentCode) {
+      setResetStep('newpin')
+    } else {
+      setLocalErr("That code doesn't match. Check and try again.")
+    }
   }
 
   return (
@@ -134,8 +209,77 @@ export function Onboarding() {
           </div>
 
           <p className="mt-8 text-center text-xs text-content-faint">
-            {pending ? 'Creating your wallet…' : mode === 'login' ? 'Forgot PIN? Admin can reset it.' : ''}
+            {pending ? 'Creating your wallet…' : ''}
           </p>
+          {mode === 'login' && !pending && (
+            <button onClick={goForgotPin} className="mt-2 text-center text-xs font-semibold text-brand">
+              Forgot PIN? Reset it
+            </button>
+          )}
+        </div>
+      )}
+
+      {step === 'reset' && (
+        <div className="flex flex-1 flex-col px-6 pt-16 animate-rise-in">
+          <button onClick={() => setStep('login')} className="mb-8 inline-flex w-fit items-center gap-1.5 text-sm text-content-faint">
+            <ArrowLeft size={16} /> Back
+          </button>
+          {resetStep === 'email' && (
+            <>
+              <h1 className="font-display text-2xl font-bold text-content">Reset your PIN</h1>
+              <p className="mt-2 text-sm text-content-faint">Enter the email on your Crypton account and we'll send a reset code.</p>
+              <div className="mt-10 space-y-4">
+                <Field label="Email">
+                  <TextInput type="email" placeholder="you@crypton.app" value={resetEmail} onChange={(e) => setResetEmail(e.target.value)} autoComplete="email" />
+                </Field>
+                <Button block size="lg" onClick={requestReset} disabled={!resetEmail.trim() || resetBusy}>
+                  {resetBusy ? 'Sending…' : 'Send reset code'}
+                </Button>
+              </div>
+              {localErr && <p className="mt-4 rounded-xl bg-down/10 px-3.5 py-2.5 text-xs text-down">{localErr}</p>}
+            </>
+          )}
+          {resetStep === 'code' && (
+            <>
+              <h1 className="font-display text-2xl font-bold text-content">Enter the reset code</h1>
+              <p className="mt-2 text-sm text-content-faint">We sent a 6-digit code to {resetEmail}.</p>
+              {resetSentCode && (
+                <div className="mt-4 rounded-xl border border-brand/30 bg-brand/10 px-3.5 py-2.5">
+                  <p className="text-xs text-content-faint">Demo delivery — your code is</p>
+                  <p className="font-mono text-2xl font-bold tracking-[0.3em] text-brand tabular">{resetSentCode}</p>
+                </div>
+              )}
+              <div className="mt-6">
+                <Field label="Reset code">
+                  <TextInput
+                    inputMode="numeric"
+                    placeholder="000000"
+                    value={resetCode}
+                    onChange={(e) => setResetCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                    className="text-center font-mono text-lg tracking-[0.4em]"
+                  />
+                </Field>
+              </div>
+              {localErr && <p className="mt-3 rounded-xl bg-down/10 px-3.5 py-2.5 text-xs text-down">{localErr}</p>}
+              <Button block size="lg" className="mt-6" onClick={submitResetCode} disabled={resetCode.length < 6}>
+                Verify code
+              </Button>
+            </>
+          )}
+          {resetStep === 'newpin' && (
+            <>
+              <h1 className="font-display text-2xl font-bold text-content">Set a new PIN</h1>
+              <p className="mt-2 text-sm text-content-faint">Choose a new 6-digit PIN for {resetEmail}.</p>
+              <div className="mt-10">
+                <PinDots value={resetGate.pin} length={6} error={resetGate.error} />
+              </div>
+              {localErr && <p className="mt-6 text-center text-sm text-down">{localErr}</p>}
+              <div className="mt-10">
+                <PinPad onDigit={resetGate.digit} onDelete={resetGate.del} />
+              </div>
+              <p className="mt-8 text-center text-xs text-content-faint">{resetBusy ? 'Updating…' : ''}</p>
+            </>
+          )}
         </div>
       )}
     </div>
