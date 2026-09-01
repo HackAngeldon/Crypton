@@ -1,7 +1,7 @@
 import { Pool } from "pg";
 import { scryptSync, randomBytes } from "node:crypto";
-import type { Announcement } from "../types";
-import { genAddress, genId } from "../lib/sim";
+import type { Announcement } from "../types.js";
+import { genAddress, genId } from "../lib/sim.js";
 
 export type Row = Record<string, unknown>;
 

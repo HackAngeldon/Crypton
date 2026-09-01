@@ -1,4 +1,4 @@
-import type { CoinId, CoinMeta } from '@/types'
+import type { CoinId, CoinMeta } from '../types.js'
 
 export const COIN_CATALOG: CoinMeta[] = [
   { id: 'bitcoin', symbol: 'BTC', name: 'Bitcoin', color: '#F7931A', glow: 'rgba(247,147,26,0.35)', decimals: 8, chain: 'Bitcoin', icon: 'btc' },

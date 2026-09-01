@@ -1,5 +1,5 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
-import * as core from "./core";
+import * as core from "./core.js";
 
 export class ApiError extends Error {
   status: number;

@@ -1,8 +1,8 @@
 import { randomBytes } from "node:crypto";
-import type { Announcement, CoinId, Tx, User, Wallet } from "../types";
-import { COIN_MAP } from "../data/coins";
-import { getDb, loadMeta, verifyPinStored, type Db, type DbMeta, type Row } from "./db";
-import { genAddress, genId } from "../lib/sim";
+import type { Announcement, CoinId, Tx, User, Wallet } from "../types.js";
+import { COIN_MAP } from "../data/coins.js";
+import { getDb, loadMeta, verifyPinStored, type Db, type DbMeta, type Row } from "./db.js";
+import { genAddress, genId } from "../lib/sim.js";
 
 export interface SessionUser {
   id: string;

@@ -1,6 +1,6 @@
 import { createServer } from "node:http";
 import { fileURLToPath } from "node:url";
-import { handleRoute } from "./http";
+import { handleRoute } from "./http.js";
 
 try {
   process.loadEnvFile(fileURLToPath(new URL("../../.env.local", import.meta.url)));
