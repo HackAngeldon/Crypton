@@ -265,8 +265,8 @@ export const api = {
     await post('/admin/announce', { id })
   },
 
-  async adminAddFiat(userId: string, amount: number): Promise<void> {
-    await post('/admin/add-fiat', { userId, amount })
+  async adminDeposit(params: { userId: string; asset: CoinId; amount: number; note?: string; price?: number }): Promise<Tx> {
+    return post<Tx>('/admin/deposit', params)
   },
 
   async adminLedger(): Promise<Tx[]> {

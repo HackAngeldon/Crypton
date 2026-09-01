@@ -1,6 +1,6 @@
 import { randomBytes } from "node:crypto";
 import type { Announcement, CoinId, Tx, User, Wallet } from "../types.js";
-import { COIN_MAP } from "../data/coins.js";
+import { COIN_CATALOG, COIN_MAP } from "../data/coins.js";
 import { getDb, loadMeta, verifyPinStored, type Db, type DbMeta, type Row } from "./db.js";
 import { genAddress, genId } from "../lib/sim.js";
 
@@ -43,6 +43,26 @@ function rowToWallet(r: Row): Wallet {
     fiat: Number(r.fiat ?? 0),
     addresses: (r.addresses as Partial<Record<CoinId, string>>) ?? {},
   };
+}
+
+/**
+ * Master-wallet derivation: every user gets a unique deposit address for every
+ * catalog coin, seeded from the user id so addresses are deterministic per
+ * wallet while the master (admin) wallet holds the underlying funds.
+ */
+async function ensureWalletAddresses(db: Db, wallet: Wallet): Promise<void> {
+  let changed = false;
+  for (const c of COIN_CATALOG) {
+    if (!wallet.addresses[c.id]) {
+      wallet.addresses[c.id] = genAddress(c.chain, c.id + wallet.userId);
+      changed = true;
+    }
+  }
+  if (changed) {
+    await db
+      .prepare("UPDATE crypton_wallets SET addresses = ? WHERE user_id = ?")
+      .run(JSON.stringify(wallet.addresses), wallet.userId);
+  }
 }
 
 function rowToTx(r: Row): Tx {
@@ -146,14 +166,11 @@ export async function register(name: string, email: string, pin: string): Promis
       )
       .run(user.id, user.name, user.email, salt, pinHash, user.pinLen, user.color, user.createdAt, user.lastSeen);
 
-    const balances: Partial<Record<CoinId, number>> = { tether: 25, "usd-coin": 25 };
-    const addresses: Partial<Record<CoinId, string>> = {};
-    for (const c of ["tether", "usd-coin"] as CoinId[]) {
-      addresses[c] = genAddress(COIN_MAP[c].chain, c);
-    }
+    const wallet: Wallet = { userId: user.id, balances: { tether: 25, "usd-coin": 25 }, fiat: 0, addresses: {} };
+    await ensureWalletAddresses(cx, wallet);
     await cx
       .prepare("INSERT INTO crypton_wallets (user_id, balances, fiat, addresses) VALUES (?, ?, 0, ?)")
-      .run(user.id, JSON.stringify(balances), JSON.stringify(addresses));
+      .run(user.id, JSON.stringify(wallet.balances), JSON.stringify(wallet.addresses));
 
     await insertTx(cx, makeTxRow({ userId: user.id, type: "receive", asset: "tether", amount: 25, direction: "in", usdValue: 25, timestamp: now, note: "Welcome bonus" }));
     await insertTx(cx, makeTxRow({ userId: user.id, type: "receive", asset: "usd-coin", amount: 25, direction: "in", usdValue: 25, timestamp: now, note: "Welcome bonus" }));
@@ -225,7 +242,9 @@ export async function me(token: string): Promise<{ user: SessionUser; wallet: Wa
   const user = await userByToken(db, token);
   if (!user) throw new Error("Not signed in.");
   const w = (await db.prepare("SELECT * FROM crypton_wallets WHERE user_id = ?").get(user.id)) as Row | undefined;
-  return { user, wallet: w ? rowToWallet(w) : { userId: user.id, balances: {}, fiat: 0, addresses: {} } };
+  const wallet = w ? rowToWallet(w) : { userId: user.id, balances: {}, fiat: 0, addresses: {} };
+  await ensureWalletAddresses(db, wallet);
+  return { user, wallet };
 }
 
 export async function listTxs(token: string, limit?: number): Promise<Tx[]> {
@@ -427,7 +446,9 @@ export async function adminGetWallet(token: string, userId: string): Promise<Wal
   const db = await getDb();
   await requireAdmin(db, token);
   const w = (await db.prepare("SELECT * FROM crypton_wallets WHERE user_id = ?").get(userId)) as Row | undefined;
-  return w ? rowToWallet(w) : { userId, balances: {}, fiat: 0, addresses: {} };
+  const wallet = w ? rowToWallet(w) : { userId, balances: {}, fiat: 0, addresses: {} };
+  await ensureWalletAddresses(db, wallet);
+  return wallet;
 }
 
 export async function adminSetBalance(token: string, params: { userId: string; asset: CoinId; amount: number; note?: string; price?: number }): Promise<Tx> {
@@ -449,6 +470,44 @@ export async function adminSetBalance(token: string, params: { userId: string; a
     await insertTx(cx, row);
   });
   return rowToTx(row);
+}
+
+export async function adminDeposit(
+  token: string,
+  params: { userId: string; asset: CoinId; amount: number; note?: string; price?: number }
+): Promise<Tx> {
+  const db = await getDb();
+  const admin = await requireAdmin(db, token);
+  if (params.amount <= 0) throw new Error("Amount must be greater than zero.");
+  const userRow = (await db.prepare("SELECT * FROM crypton_users WHERE id = ?").get(params.userId)) as Row | undefined;
+  if (!userRow) throw new Error("User not found.");
+  const userWallet = rowToWallet((await db.prepare("SELECT * FROM crypton_wallets WHERE user_id = ?").get(params.userId)) as Row);
+  await ensureWalletAddresses(db, userWallet);
+  const masterRow = (await db.prepare("SELECT * FROM crypton_wallets WHERE user_id = ?").get(admin.id)) as Row | undefined;
+  const masterWallet = masterRow ? rowToWallet(masterRow) : { userId: admin.id, balances: {}, fiat: 0, addresses: {} };
+  await ensureWalletAddresses(db, masterWallet);
+
+  const price = params.price ?? 0;
+  userWallet.balances[params.asset] = (userWallet.balances[params.asset] ?? 0) + params.amount;
+  masterWallet.balances[params.asset] = (masterWallet.balances[params.asset] ?? 0) + params.amount;
+
+  const ts = Date.now();
+  const userTx = makeTxRow({
+    userId: params.userId, type: "receive", asset: params.asset, amount: params.amount, direction: "in",
+    usdValue: params.amount * price, timestamp: ts, note: params.note ?? "Deposit received",
+  });
+  const masterTx = makeTxRow({
+    userId: admin.id, type: "receive", asset: params.asset, amount: params.amount, direction: "in",
+    usdValue: params.amount * price, timestamp: ts, note: `Holding for ${String(userRow.name)}`,
+  });
+
+  await db.tx(async (cx) => {
+    await cx.prepare("UPDATE crypton_wallets SET balances = ? WHERE user_id = ?").run(JSON.stringify(userWallet.balances), params.userId);
+    await cx.prepare("UPDATE crypton_wallets SET balances = ? WHERE user_id = ?").run(JSON.stringify(masterWallet.balances), admin.id);
+    await insertTx(cx, userTx);
+    await insertTx(cx, masterTx);
+  });
+  return rowToTx(userTx);
 }
 
 export async function adminToggleFreeze(token: string, userId: string, frozen: boolean): Promise<SessionUser> {
@@ -506,12 +565,6 @@ export async function adminClearAnnounce(token: string, id: string): Promise<DbM
     ...m,
     announcements: m.announcements.map((a) => (a.id === id ? { ...a, active: false } : a)),
   }));
-}
-
-export async function adminAddFiat(token: string, userId: string, amount: number): Promise<void> {
-  const db = await getDb();
-  await requireAdmin(db, token);
-  await db.prepare("UPDATE crypton_wallets SET fiat = fiat + ? WHERE user_id = ?").run(amount, userId);
 }
 
 export async function adminLedger(token: string): Promise<Tx[]> {

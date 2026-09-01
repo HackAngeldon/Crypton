@@ -3,27 +3,35 @@ import { useNavigate } from 'react-router-dom'
 import {
   LayoutDashboard, Users, CandlestickChart, Megaphone, BookOpenText,
   Snowflake, ShieldCheck, Search, Trash2, Plus, Minus, Zap, Radio, Flame, Eye, EyeOff,
+  Wallet, Copy, Check, LogOut,
 } from 'lucide-react'
 import { useApp } from '@/store/app'
 import { usePriceFeed } from '@/lib/priceFeed'
 import { useCurrency } from '@/lib/currency'
 import { COIN_CATALOG, COIN_MAP } from '@/data/coins'
 import { Avatar } from '@/components/ui/Avatar'
-import { PageHeader } from '@/components/PageHeader'
+import { LogoMark, Wordmark } from '@/components/ui/Logo'
 import { Sheet } from '@/components/ui/Sheet'
 import { CoinIcon } from '@/components/CoinIcon'
-import { AmountInput, TextInput } from '@/components/ui/Input'
+import { TextInput } from '@/components/ui/Input'
 import { Button } from '@/components/ui/Button'
-import { formatUsd, formatCoin, timeAgo } from '@/lib/format'
+import { formatUsd, formatCoin, timeAgo, shortAddr } from '@/lib/format'
 import type { CoinId, User } from '@/types'
-import type { Session } from '@/lib/mockApi'
 
 type Tab = 'overview' | 'users' | 'markets' | 'broadcast' | 'ledger'
+
+const TABS: Array<{ id: Tab; label: string; icon: typeof Users }> = [
+  { id: 'overview', label: 'Overview', icon: LayoutDashboard },
+  { id: 'users', label: 'Users', icon: Users },
+  { id: 'markets', label: 'Markets', icon: CandlestickChart },
+  { id: 'broadcast', label: 'Broadcast', icon: Megaphone },
+  { id: 'ledger', label: 'Ledger', icon: BookOpenText },
+]
 
 export function Admin() {
   const session = useApp((s) => s.session)
   if (!session || session.role !== 'admin') return <AdminDenied />
-  return <AdminPanel session={session} />
+  return <AdminPanel />
 }
 
 function AdminDenied() {
@@ -38,8 +46,9 @@ function AdminDenied() {
   )
 }
 
-function AdminPanel({ session }: { session: Session }) {
+function AdminPanel() {
   const [tab, setTab] = useState<Tab>('overview')
+  const nav = useNavigate()
   const adminRefreshUsers = useApp((s) => s.adminRefreshUsers)
   const adminRefreshExtended = useApp((s) => s.adminRefreshExtended)
   const adminUsers = useApp((s) => s.adminUsers)
@@ -48,19 +57,12 @@ function AdminPanel({ session }: { session: Session }) {
   const announcements = useApp((s) => s.announcements)
   const user = useApp((s) => s.user)
   const hiddenCoins = useApp((s) => s.hiddenCoins)
+  const logout = useApp((s) => s.logout)
 
   useEffect(() => {
     void adminRefreshUsers()
     void adminRefreshExtended()
   }, [adminRefreshUsers, adminRefreshExtended])
-
-  const tabs: Array<{ id: Tab; label: string; icon: typeof Users }> = [
-    { id: 'overview', label: 'Overview', icon: LayoutDashboard },
-    { id: 'users', label: 'Users', icon: Users },
-    { id: 'markets', label: 'Markets', icon: CandlestickChart },
-    { id: 'broadcast', label: 'Broadcast', icon: Megaphone },
-    { id: 'ledger', label: 'Ledger', icon: BookOpenText },
-  ]
 
   const frozenCount = adminUsers.filter((u) => u.frozen).length
   const prices = usePriceFeed((s) => s.markets)
@@ -76,50 +78,101 @@ function AdminPanel({ session }: { session: Session }) {
     return sum
   }, [adminWallets, prices])
 
-  return (
-    <div className="pb-10">
-      <PageHeader
-        title="Control room"
-        sub={session.role === 'admin' ? 'Operating as admin' : ''}
-        right={
-          <span className="flex items-center gap-1.5 rounded-full bg-brand/15 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider text-brand">
-            <Zap size={11} /> Admin
-          </span>
-        }
-      />
+  const renderTab = () => {
+    switch (tab) {
+      case 'overview':
+        return <Overview users={adminUsers} frozenCount={frozenCount} aum={aum} txsCount={txs.length} live={live} announcements={announcements} />
+      case 'users':
+        return <UsersTab users={adminUsers} />
+      case 'markets':
+        return <MarketsTab hiddenCoins={hiddenCoins} />
+      case 'broadcast':
+        return <BroadcastTab />
+      case 'ledger':
+        return <LedgerTab users={adminUsers} />
+    }
+  }
 
-      <div className="sticky top-0 z-20 border-b border-hairline bg-canvas/90 px-2 pt-2 backdrop-blur">
-        <div className="flex gap-1 overflow-x-auto no-scrollbar pb-2">
-          {tabs.map(({ id, label, icon: Icon }) => (
+  return (
+    <div className="min-h-[100dvh] bg-canvas lg:flex">
+      {/* Desktop sidebar */}
+      <aside className="sticky top-0 hidden h-[100dvh] w-64 shrink-0 flex-col border-r border-hairline bg-surface px-4 py-6 lg:flex">
+        <div className="flex items-center gap-2.5 px-2">
+          <LogoMark size={30} />
+          <Wordmark size={20} />
+        </div>
+        <p className="mt-4 px-2 text-2xs font-semibold uppercase tracking-wider text-content-faint">Control room</p>
+        <nav className="mt-4 flex flex-col gap-1">
+          {TABS.map(({ id, label, icon: Icon }) => (
             <button
               key={id}
               onClick={() => setTab(id)}
-              className={`flex shrink-0 items-center gap-1.5 rounded-xl px-3.5 py-2 text-sm font-semibold transition ${tab === id ? 'bg-brand/20 text-brand' : 'text-content-faint'}`}
+              className={`flex items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-semibold transition ${tab === id ? 'bg-brand/12 text-brand' : 'text-content-mute hover:bg-fill/5 hover:text-content'}`}
             >
-              <Icon size={15} /> {label}
+              <Icon size={17} strokeWidth={tab === id ? 2.4 : 2} /> {label}
             </button>
           ))}
+        </nav>
+        <div className="flex-1" />
+        <button onClick={() => nav('/dashboard')} className="flex items-center gap-2 rounded-xl bg-fill/5 px-3 py-2.5 text-sm font-semibold text-content-mute transition hover:bg-fill/10 hover:text-content">
+          <Wallet size={16} /> Back to wallet
+        </button>
+        <div className="mt-2 flex items-center gap-2.5 rounded-xl bg-elevate px-3 py-2.5">
+          <Avatar name={user?.name ?? 'U'} size={32} gradient={user?.color} />
+          <div className="min-w-0 flex-1">
+            <p className="truncate text-xs font-semibold text-content">{user?.name}</p>
+            <p className="truncate text-[10px] text-content-faint">Admin · session active</p>
+          </div>
+          <button onClick={() => void logout()} className="press rounded-lg p-1.5 text-content-faint" title="Sign out">
+            <LogOut size={15} />
+          </button>
         </div>
-      </div>
+      </aside>
 
-      <div className="px-4 pt-4">
-        {tab === 'overview' && (
-          <Overview
-            users={adminUsers}
-            frozenCount={frozenCount}
-            aum={aum}
-            txsCount={txs.length}
-            live={live}
-            announcements={announcements}
-          />
-        )}
-        {tab === 'users' && <UsersTab users={adminUsers} />}
-        {tab === 'markets' && <MarketsTab hiddenCoins={hiddenCoins} />}
-        {tab === 'broadcast' && <BroadcastTab />}
-        {tab === 'ledger' && <LedgerTab users={adminUsers} />}
-      </div>
+      {/* Main column */}
+      <div className="min-w-0 flex-1">
+        {/* Mobile header */}
+        <header className="sticky top-0 z-30 border-b border-hairline bg-canvas/85 backdrop-blur lg:hidden">
+          <div className="flex items-center gap-2.5 px-4 py-3 pt-[calc(env(safe-area-inset-top)+12px)]">
+            <LogoMark size={26} />
+            <Wordmark size={17} />
+            <span className="ml-auto flex items-center gap-1.5 rounded-full bg-brand/15 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider text-brand">
+              <Zap size={11} /> Admin
+            </span>
+          </div>
+        </header>
 
-      <p className="mt-10 text-center text-2xs text-content-faint">Signed in as {user?.name} · session {session.userId}</p>
+        {/* Content */}
+        <main className="mx-auto max-w-[430px] px-4 pb-32 pt-5 lg:max-w-3xl lg:px-8 lg:pb-16 lg:pt-8">
+          <div className="mb-5 hidden items-end justify-between lg:flex">
+            <div>
+              <h1 className="font-display text-2xl font-bold tracking-tight text-content">{TABS.find((t) => t.id === tab)?.label}</h1>
+              <p className="text-sm text-content-faint">Operating as admin</p>
+            </div>
+            <span className="flex items-center gap-1.5 rounded-full bg-brand/15 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider text-brand">
+              <Zap size={11} /> Admin
+            </span>
+          </div>
+          {renderTab()}
+          <p className="mt-10 text-center text-2xs text-content-faint lg:hidden">Signed in as {user?.name}</p>
+        </main>
+
+        {/* Mobile bottom nav */}
+        <nav className="fixed inset-x-0 bottom-0 z-40 lg:hidden">
+          <div className="glass border-t border-hairline px-2 pb-[env(safe-area-inset-bottom)] pt-1.5 shadow-tabbar">
+            <div className="grid grid-cols-5">
+              {TABS.map(({ id, label, icon: Icon }) => (
+                <button key={id} onClick={() => setTab(id)} className="press flex flex-col items-center gap-1 py-1">
+                  <span className={`flex h-9 w-9 items-center justify-center rounded-xl transition-colors ${tab === id ? 'text-brand' : 'text-content-faint'}`}>
+                    <Icon size={22} strokeWidth={tab === id ? 2.4 : 2} />
+                  </span>
+                  <span className={`text-[10px] font-semibold ${tab === id ? 'text-brand' : 'text-content-faint'}`}>{label}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+        </nav>
+      </div>
     </div>
   )
 }
@@ -182,6 +235,72 @@ function Overview({ users, frozenCount, aum, txsCount, live, announcements }: {
           </div>
         </div>
       )}
+
+      <MasterWallet />
+    </div>
+  )
+}
+
+/* ----------------------------- master wallet ----------------------------- */
+
+function MasterWallet() {
+  const session = useApp((s) => s.session)
+  const adminWallet = useApp((s) => s.adminWallet)
+  const adminOpenUser = useApp((s) => s.adminOpenUser)
+  const markets = usePriceFeed((s) => s.markets)
+  const cur = useCurrency()
+  const [copied, setCopied] = useState('')
+
+  useEffect(() => {
+    if (session?.role === 'admin') void adminOpenUser(session.userId)
+  }, [session, adminOpenUser])
+
+  const w = session && adminWallet && adminWallet.userId === session.userId ? adminWallet : null
+  const rows = COIN_CATALOG.filter((c) => (w?.balances[c.id] ?? 0) > 0)
+  const total = rows.reduce((s, c) => s + (w?.balances[c.id] ?? 0) * (markets[c.id]?.price ?? 0), 0)
+
+  const copy = async (addr: string) => {
+    await navigator.clipboard?.writeText(addr).catch(() => {})
+    setCopied(addr)
+    setTimeout(() => setCopied(''), 1500)
+  }
+
+  return (
+    <div className="mt-5 rounded-2xl border border-hairline bg-surface p-4">
+      <div className="flex items-center justify-between">
+        <div>
+          <p className="flex items-center gap-2 text-2xs font-semibold uppercase tracking-wider text-content-faint">
+            <Wallet size={13} className="text-brand" /> Master wallet
+          </p>
+          <p className="mt-1 font-display text-2xl font-bold tabular text-content">{cur.fmt(total, true)}</p>
+        </div>
+        <span className="rounded-full bg-brand/15 px-2.5 py-1 text-[10px] font-bold uppercase tracking-wider text-brand">Held on behalf of users</span>
+      </div>
+      <p className="mt-2 text-xs text-content-faint">Deposit addresses derive from this wallet. Incoming funds land here and are credited to the user's balance.</p>
+
+      <div className="mt-3 divide-y divide-hairline rounded-xl border border-hairline bg-surface px-3">
+        {rows.length === 0 && <p className="py-5 text-center text-xs text-content-faint">No holdings in the master wallet yet. Credit a deposit from a user's profile.</p>}
+        {rows.map((c) => {
+          const addr = w?.addresses[c.id] ?? ''
+          const amt = w?.balances[c.id] ?? 0
+          return (
+            <div key={c.id} className="flex items-center gap-3 py-2.5">
+              <CoinIcon coin={c.id} size={30} />
+              <div className="w-20">
+                <p className="text-sm font-semibold text-content">{c.symbol}</p>
+                <p className="text-[10px] tabular text-content-faint">{formatCoin(amt, c.id, { compact: true })}</p>
+              </div>
+              <div className="min-w-0 flex-1">
+                <p className="truncate font-mono text-[11px] text-content-mute">{shortAddr(addr, 8)}</p>
+                <p className="text-[10px] tabular text-content-faint">{cur.fmt(amt * (markets[c.id]?.price ?? 0))}</p>
+              </div>
+              <button onClick={() => void copy(addr)} className="press flex items-center gap-1 rounded-lg bg-fill/5 px-2 py-1.5 text-[10px] font-bold text-content-mute">
+                {copied === addr ? <Check size={12} className="text-up" /> : <Copy size={12} />} {copied === addr ? 'Copied' : 'Copy'}
+              </button>
+            </div>
+          )
+        })}
+      </div>
     </div>
   )
 }
@@ -230,15 +349,15 @@ function UsersTab({ users }: { users: User[] }) {
 
 function UserDetail({ user, onClose }: { user: User | null; onClose: () => void }) {
   const [balance, setBalance] = useState<Partial<Record<CoinId, string>>>({})
-  const [fiatAmount, setFiatAmount] = useState('')
+  const [depositCoin, setDepositCoin] = useState<CoinId>('bitcoin')
+  const [depositAmount, setDepositAmount] = useState('')
   const adminSetBalance = useApp((s) => s.adminSetBalance)
-  const adminAddFiat = useApp((s) => s.adminAddFiat)
+  const adminDeposit = useApp((s) => s.adminDeposit)
   const adminToggleFreeze = useApp((s) => s.adminToggleFreeze)
   const adminOpenUser = useApp((s) => s.adminOpenUser)
   const adminWallet = useApp((s) => s.adminWallet)
   const toast = useApp((s) => s.toast)
   const markets = usePriceFeed((s) => s.markets)
-  const cur = useCurrency()
 
   useEffect(() => {
     if (user) void adminOpenUser(user.id)
@@ -261,6 +380,14 @@ function UserDetail({ user, onClose }: { user: User | null; onClose: () => void 
     const curBal = w?.balances[id] ?? 0
     await adminSetBalance({ userId: user.id, asset: id, amount: Math.max(0, curBal + delta), note: delta > 0 ? 'Admin credit' : 'Admin debit', price: markets[id]?.price })
     toast({ kind: 'success', title: `${delta > 0 ? 'Credited' : 'Debited'} ${COIN_MAP[id].symbol}`, desc: `${delta > 0 ? '+' : ''}${formatCoin(delta, id)}` })
+  }
+
+  const doDeposit = async () => {
+    const v = parseFloat(depositAmount)
+    if (!v || v <= 0) return
+    await adminDeposit({ userId: user.id, asset: depositCoin, amount: v, price: markets[depositCoin]?.price })
+    setDepositAmount('')
+    toast({ kind: 'success', title: 'Deposit credited', desc: `${formatCoin(v, depositCoin)} received · funds held in the master wallet` })
   }
 
   return (
@@ -313,11 +440,34 @@ function UserDetail({ user, onClose }: { user: User | null; onClose: () => void 
         ))}
       </div>
 
-      <div className="mt-4 flex items-center gap-2">
-        <AmountInput value={fiatAmount} onChange={(e) => setFiatAmount(e.target.value.replace(/[^0-9.]/g, ''))} placeholder="0.00" className="!h-11 !text-base !rounded-xl" />
-        <Button size="sm" variant="ghost" onClick={() => { void adminAddFiat(user.id, parseFloat(fiatAmount) || 0); toast({ kind: 'success', title: 'Cash added' }) }} className="shrink-0">
-          Add {cur.code}
-        </Button>
+      <div className="mt-5">
+        <p className="text-2xs font-semibold uppercase tracking-wider text-content-faint">Credit a deposit · master wallet</p>
+        <div className="mt-2 rounded-2xl border border-hairline bg-surface p-3">
+          <div className="flex items-center gap-2">
+            <select
+              value={depositCoin}
+              onChange={(e) => setDepositCoin(e.target.value as CoinId)}
+              className="h-11 shrink-0 rounded-xl border border-hairline bg-elevate px-2.5 text-sm font-semibold text-content outline-none focus:border-brand/60"
+            >
+              {COIN_CATALOG.map((c) => (
+                <option key={c.id} value={c.id}>{c.symbol}</option>
+              ))}
+            </select>
+            <input
+              value={depositAmount}
+              onChange={(e) => setDepositAmount(e.target.value.replace(/[^0-9.]/g, ''))}
+              placeholder="0.00"
+              inputMode="decimal"
+              className="h-11 w-full min-w-0 flex-1 rounded-xl border border-hairline bg-elevate px-3 text-right font-mono text-sm tabular text-content placeholder:text-content-faint outline-none focus:border-brand/60"
+            />
+            <Button size="sm" onClick={() => void doDeposit()} disabled={!parseFloat(depositAmount)} className="shrink-0">
+              Credit
+            </Button>
+          </div>
+          <p className="mt-2 text-[11px] leading-relaxed text-content-faint">
+            Simulates a deposit to {user.name}'s address. The coins are credited to their balance and held in the admin master wallet.
+          </p>
+        </div>
       </div>
 
       <p className="mt-4 text-2xs text-content-faint">Last seen {timeAgo(user.lastSeen)} · joined {new Date(user.createdAt).toLocaleDateString()} · KYC level {user.kycLevel}</p>

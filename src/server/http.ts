@@ -95,12 +95,12 @@ const DEFS: Array<[string, string, (ctx: Ctx) => Promise<unknown> | unknown]> = 
   ["GET", "/admin/ledger", ({ token }) => core.adminLedger(token)],
   ["GET", "/admin/all-wallets", ({ token }) => core.adminAllWallets(token)],
   ["POST", "/admin/balance", ({ token, body }) => core.adminSetBalance(token, body)],
+  ["POST", "/admin/deposit", ({ token, body }) => core.adminDeposit(token, body)],
   ["POST", "/admin/freeze", ({ token, body }) => core.adminToggleFreeze(token, body.userId, Boolean(body.frozen))],
   ["POST", "/admin/spread", ({ token, body }) => core.adminSetSpread(token, Number(body.pct))],
   ["POST", "/admin/override-price", ({ token, body }) => core.adminOverridePrice(token, body.asset, body.price === null ? null : Number(body.price))],
   ["POST", "/admin/coin", ({ token, body }) => core.adminToggleCoin(token, body.asset, Boolean(body.hidden))],
   ["POST", "/admin/announce", ({ token, body }) => (body.id ? core.adminClearAnnounce(token, body.id) : core.adminAnnounce(token, body.text, body.severity))],
-  ["POST", "/admin/add-fiat", ({ token, body }) => core.adminAddFiat(token, body.userId, Number(body.amount))],
 ];
 
 export const routeHandlers: Record<string, VercelHandler> = {};

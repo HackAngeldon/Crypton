@@ -67,7 +67,7 @@ interface AppState {
   adminToggleCoin: (asset: CoinId) => Promise<void>
   adminAnnounce: (text: string, severity: Announcement['severity']) => Promise<void>
   adminClearAnnounce: (id: string) => Promise<void>
-  adminAddFiat: (userId: string, amount: number) => Promise<void>
+  adminDeposit: (p: { userId: string; asset: CoinId; amount: number; note?: string; price?: number }) => Promise<void>
 }
 
 export const useApp = create<AppState>((set, get) => {
@@ -279,11 +279,14 @@ export const useApp = create<AppState>((set, get) => {
       set({ announcements: await api.announcements() })
     },
 
-    adminAddFiat: async (userId, amount) => {
-      await api.adminAddFiat(userId, amount)
+    adminDeposit: async (p) => {
+      await api.adminDeposit(p)
       await get().adminRefreshUsers()
-      if (get().adminWallet && userId === get().adminWallet!.userId) {
-        set({ adminWallet: await api.adminGetWallet(userId) })
+      await get().refresh()
+      await get().adminRefreshExtended()
+      const { session, adminWallet } = get()
+      if (adminWallet && (p.userId === adminWallet.userId || session?.userId === adminWallet.userId)) {
+        set({ adminWallet: await api.adminGetWallet(adminWallet.userId) })
       }
     },
   }

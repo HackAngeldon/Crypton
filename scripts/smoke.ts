@@ -56,6 +56,7 @@ const email = `smoke-${Date.now()}@crypton.test`;
 r = await req("POST", "/auth/register", { name: "Smoke Test", email, pin: "777777" });
 ok(r.status === 200 && !!r.data.token, "register works");
 const token = r.data.token as string;
+const userId = r.data.user.id as string;
 
 r = await req("POST", "/auth/login", { email, pin: "9999" });
 ok(r.status === 400, "wrong PIN rejected");
@@ -65,6 +66,7 @@ ok(r.status === 200 && !!r.data.token, "login works");
 
 r = await req("GET", "/me", undefined, token);
 ok(r.status === 200 && r.data.wallet.balances.tether === 25, "welcome bonus present");
+ok(r.status === 200 && Object.keys(r.data.wallet.addresses ?? {}).length >= 16, "every coin has a deposit address");
 
 r = await req("GET", `/auth/pin-length?email=${encodeURIComponent(email)}`);
 ok(r.data.pinLen === 6, "pinLength resolved");
@@ -104,6 +106,13 @@ ok(r.status === 200 && r.data.frozen === true, "admin freezes user");
 
 r = await req("POST", "/admin/override-price", { asset: "bitcoin", price: 99999 }, atok);
 ok(r.status === 200, "price override set");
+
+r = await req("GET", "/admin/wallet?userId=" + encodeURIComponent(userId), undefined, atok);
+const btcBefore = r.data.balances.bitcoin ?? 0;
+r = await req("POST", "/admin/deposit", { userId, asset: "bitcoin", amount: 0.5, price: 64000 }, atok);
+ok(r.status === 200 && r.data.type === "receive", "admin deposit credits user");
+r = await req("GET", "/admin/wallet?userId=" + encodeURIComponent(userId), undefined, atok);
+ok(Math.abs((r.data.balances.bitcoin ?? 0) - (btcBefore + 0.5)) < 1e-9, "deposit reflected in user balance");
 
 r = await req("GET", "/meta");
 ok(r.data.priceOverrides.bitcoin === 99999, "override persisted");
