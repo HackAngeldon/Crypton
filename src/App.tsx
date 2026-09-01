@@ -7,6 +7,7 @@ import { Splash } from '@/components/Splash'
 import { AppShell } from '@/components/layout/AppShell'
 
 import { Onboarding } from '@/features/auth/Onboarding'
+import { Landing } from '@/features/landing/Landing'
 import { PinLock } from '@/features/auth/PinLock'
 import { Dashboard } from '@/features/dashboard/Dashboard'
 import { Markets } from '@/features/markets/Markets'
@@ -41,7 +42,7 @@ function Gate() {
   if (!ready) return <Splash />
 
   if (!session) {
-    return <Onboarding />
+    return location.pathname === '/onboarding' ? <Onboarding /> : <Landing />
   }
   if (session.locked) {
     return <PinLock />

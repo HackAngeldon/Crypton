@@ -117,6 +117,36 @@
     backdrop-filter: blur(18px);
     -webkit-backdrop-filter: blur(18px);
   }
+
+  .font-grotesk {
+    font-family: 'Space Grotesk', Inter, system-ui, -apple-system, 'Segoe UI', sans-serif;
+  }
+
+  .reveal {
+    opacity: 0;
+    transform: translateY(22px);
+    transition: opacity 0.65s ease, transform 0.65s cubic-bezier(0.16, 1, 0.3, 1);
+  }
+  .reveal.is-in {
+    opacity: 1;
+    transform: none;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .reveal {
+      opacity: 1;
+      transform: none;
+      transition: none;
+    }
+    .animate-aurora,
+    .animate-aurora-slow,
+    .animate-float-y,
+    .animate-ticker,
+    .animate-pulse-ring,
+    .animate-rise {
+      animation: none !important;
+    }
+  }
 }
 
 @layer components {

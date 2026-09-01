@@ -63,6 +63,27 @@ export default {
           from: { backgroundPosition: '200% 0' },
           to: { backgroundPosition: '-200% 0' },
         },
+        aurora: {
+          '0%,100%': { transform: 'translate3d(0,0,0) scale(1)' },
+          '50%': { transform: 'translate3d(40px,-30px,0) scale(1.18)' },
+        },
+        'float-y': {
+          '0%,100%': { transform: 'translateY(0)' },
+          '50%': { transform: 'translateY(-12px)' },
+        },
+        rise: {
+          from: { opacity: 0, transform: 'translateY(22px)' },
+          to: { opacity: 1, transform: 'translateY(0)' },
+        },
+        'draw-line': {
+          from: { strokeDashoffset: 'var(--len)' },
+          to: { strokeDashoffset: '0' },
+        },
+        'pulse-ring': {
+          '0%': { transform: 'scale(0.9)', opacity: 0.7 },
+          '70%': { transform: 'scale(1.5)', opacity: 0 },
+          '100%': { transform: 'scale(1.5)', opacity: 0 },
+        },
       },
       animation: {
         ticker: 'ticker-in 45s linear infinite',
@@ -71,6 +92,11 @@ export default {
         'rise-in': 'rise-in 0.26s cubic-bezier(0.16,1,0.3,1)',
         'pulse-soft': 'pulse-soft 1.8s ease-in-out infinite',
         shimmer: 'shimmer 1.6s linear infinite',
+        aurora: 'aurora 16s ease-in-out infinite',
+        'aurora-slow': 'aurora 26s ease-in-out infinite',
+        'float-y': 'float-y 6s ease-in-out infinite',
+        rise: 'rise 0.7s cubic-bezier(0.16,1,0.3,1) both',
+        'pulse-ring': 'pulse-ring 2.4s ease-out infinite',
       },
     },
   },
