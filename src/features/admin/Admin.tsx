@@ -3,7 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import {
   LayoutDashboard, Users, CandlestickChart, Megaphone, BookOpenText,
   Snowflake, ShieldCheck, Search, Trash2, Plus, Minus, Zap, Radio, Flame, Eye, EyeOff,
-  Wallet, Copy, Check, LogOut, Clock, Headset, ChevronRight, MessageSquare, Send,
+  Wallet, Copy, Check, LogOut, Clock, Headset, ChevronRight, MessageSquare, Send, Mail,
 } from 'lucide-react'
 import { useApp } from '@/store/app'
 import { usePriceFeed } from '@/lib/priceFeed'
@@ -16,11 +16,12 @@ import { Sheet } from '@/components/ui/Sheet'
 import { CoinIcon } from '@/components/CoinIcon'
 import { TextInput } from '@/components/ui/Input'
 import { Toggle } from '@/features/settings/Settings'
+import { MailClient } from './MailClient'
 import { Button } from '@/components/ui/Button'
 import { formatUsd, formatCoin, timeAgo, shortAddr } from '@/lib/format'
 import type { CoinId, User } from '@/types'
 
-type Tab = 'overview' | 'users' | 'markets' | 'broadcast' | 'ledger' | 'support'
+type Tab = 'overview' | 'users' | 'markets' | 'broadcast' | 'ledger' | 'support' | 'mail'
 
 const TABS: Array<{ id: Tab; label: string; icon: typeof Users }> = [
   { id: 'overview', label: 'Overview', icon: LayoutDashboard },
@@ -29,6 +30,7 @@ const TABS: Array<{ id: Tab; label: string; icon: typeof Users }> = [
   { id: 'broadcast', label: 'Broadcast', icon: Megaphone },
   { id: 'ledger', label: 'Ledger', icon: BookOpenText },
   { id: 'support', label: 'Support', icon: Headset },
+  { id: 'mail', label: 'Mail', icon: Mail },
 ]
 
 export function Admin() {
@@ -97,6 +99,8 @@ function AdminPanel() {
         return <LedgerTab users={adminUsers} />
       case 'support':
         return <SupportTab />
+      case 'mail':
+        return <MailClient />
     }
   }
 
@@ -167,13 +171,13 @@ function AdminPanel() {
         {/* Mobile bottom nav */}
         <nav className="fixed inset-x-0 bottom-0 z-40 lg:hidden">
           <div className="glass border-t border-hairline px-2 pb-[env(safe-area-inset-bottom)] pt-1.5 shadow-tabbar">
-            <div className="grid grid-cols-6">
+            <div className="grid grid-cols-7 gap-0.5">
               {TABS.map(({ id, label, icon: Icon }) => (
                 <button key={id} onClick={() => setTab(id)} className="press flex flex-col items-center gap-1 py-1">
-                  <span className={`flex h-9 w-9 items-center justify-center rounded-xl transition-colors ${tab === id ? 'text-brand' : 'text-content-faint'}`}>
-                    <Icon size={21} strokeWidth={tab === id ? 2.4 : 2} />
+                  <span className={`flex h-8 w-8 items-center justify-center rounded-xl transition-colors ${tab === id ? 'text-brand' : 'text-content-faint'}`}>
+                    <Icon size={19} strokeWidth={tab === id ? 2.4 : 2} />
                   </span>
-                  <span className={`text-[9px] font-semibold ${tab === id ? 'text-brand' : 'text-content-faint'}`}>{label}</span>
+                  <span className={`text-[8px] font-semibold leading-none ${tab === id ? 'text-brand' : 'text-content-faint'}`}>{label}</span>
                 </button>
               ))}
             </div>

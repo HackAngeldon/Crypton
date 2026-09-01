@@ -2,7 +2,7 @@ import { randomBytes } from "node:crypto";
 import type { Announcement, CoinId, Tx, User, Wallet } from "../types.js";
 import { COIN_CATALOG, COIN_MAP } from "../data/coins.js";
 import { getDb, loadMeta, verifyPinStored, type Db, type DbMeta, type Row } from "./db.js";
-import { sendEmail } from "./email.js";
+import { sendEmail, listReceivedEmails, getReceivedEmail, sendSupportEmail } from "./email.js";
 import { genAddress, genId } from "../lib/sim.js";
 
 export interface SessionUser {
@@ -950,4 +950,144 @@ export async function getUserByEmailPublic(email: string): Promise<SessionUser |
   const db = await getDb();
   const row = (await db.prepare("SELECT * FROM crypton_users WHERE email = ?").get(email.trim().toLowerCase())) as Row | undefined;
   return row ? rowToUser(row) : null;
+}
+
+/* --------------------------- admin email client ------------------------- */
+
+export interface AdminEmail {
+  id: string;
+  from_addr: string;
+  to_addrs: string[];
+  cc: string[];
+  bcc: string[];
+  subject: string;
+  html: string;
+  text: string;
+  folder: string;
+  created_at: number;
+  updated_at: number;
+}
+
+function rowToAdminEmail(r: Row): AdminEmail {
+  return {
+    id: String(r.id),
+    from_addr: String(r.from_addr),
+    to_addrs: (r.to_addrs as string[]) ?? [],
+    cc: (r.cc as string[]) ?? [],
+    bcc: (r.bcc as string[]) ?? [],
+    subject: String(r.subject ?? ""),
+    html: String(r.html ?? ""),
+    text: String(r.text ?? ""),
+    folder: String(r.folder),
+    created_at: Number(r.created_at),
+    updated_at: Number(r.updated_at),
+  };
+}
+
+export async function adminListInbox(token: string): Promise<unknown> {
+  const db = await getDb();
+  await requireAdmin(db, token);
+  return listReceivedEmails(50);
+}
+
+export async function adminGetInboxEmail(token: string, id: string): Promise<unknown> {
+  const db = await getDb();
+  await requireAdmin(db, token);
+  return getReceivedEmail(id);
+}
+
+export async function adminListEmails(token: string, folder: string): Promise<AdminEmail[]> {
+  const db = await getDb();
+  await requireAdmin(db, token);
+  const allowed = new Set(["draft", "sent", "trash"]);
+  const f = allowed.has(folder) ? folder : "draft";
+  const rows = await db.prepare("SELECT * FROM crypton_emails WHERE folder = ? ORDER BY updated_at DESC").all(f);
+  return rows.map(rowToAdminEmail);
+}
+
+export async function adminSaveDraft(
+  token: string,
+  params: { id?: string; to: string; cc?: string; bcc?: string; subject: string; html: string; text?: string }
+): Promise<AdminEmail> {
+  const db = await getDb();
+  await requireAdmin(db, token);
+  const now = Date.now();
+  const toList = params.to.split(",").map((s) => s.trim()).filter(Boolean);
+  const ccList = (params.cc ?? "").split(",").map((s) => s.trim()).filter(Boolean);
+  const bccList = (params.bcc ?? "").split(",").map((s) => s.trim()).filter(Boolean);
+  if (params.id) {
+    const existing = (await db.prepare("SELECT * FROM crypton_emails WHERE id = ?").get(params.id)) as Row | undefined;
+    if (existing) {
+      await db
+        .prepare(
+          "UPDATE crypton_emails SET to_addrs = ?, cc = ?, bcc = ?, subject = ?, html = ?, text = ?, updated_at = ? WHERE id = ?"
+        )
+        .run(JSON.stringify(toList), JSON.stringify(ccList), JSON.stringify(bccList), params.subject, params.html, params.text ?? "", now, params.id);
+      const row = (await db.prepare("SELECT * FROM crypton_emails WHERE id = ?").get(params.id)) as Row;
+      return rowToAdminEmail(row);
+    }
+  }
+  const id = genId("eml");
+  await db
+    .prepare(
+      "INSERT INTO crypton_emails (id, from_addr, to_addrs, cc, bcc, subject, html, text, folder, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'draft', ?, ?)"
+    )
+    .run(id, "help@thecrypton.xyz", JSON.stringify(toList), JSON.stringify(ccList), JSON.stringify(bccList), params.subject, params.html, params.text ?? "", now, now);
+  const row = (await db.prepare("SELECT * FROM crypton_emails WHERE id = ?").get(id)) as Row;
+  return rowToAdminEmail(row);
+}
+
+export async function adminSendEmail(
+  token: string,
+  params: { to: string; cc?: string; bcc?: string; subject: string; html: string; text?: string; draftId?: string }
+): Promise<{ ok: boolean }> {
+  const db = await getDb();
+  await requireAdmin(db, token);
+  const to = params.to.trim();
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(to.split(",")[0] ?? "")) throw new Error("Enter a valid recipient email");
+  if (!params.subject.trim()) throw new Error("Enter a subject");
+  if (!params.html.trim() && !(params.text ?? "").trim()) throw new Error("Write a message");
+  const ccList = (params.cc ?? "").split(",").map((s) => s.trim()).filter(Boolean);
+  const bccList = (params.bcc ?? "").split(",").map((s) => s.trim()).filter(Boolean);
+  const ok = await sendSupportEmail({
+    to,
+    cc: ccList,
+    bcc: bccList,
+    subject: params.subject.trim(),
+    html: params.html,
+    text: params.text,
+  });
+  if (!ok) throw new Error("Email could not be sent. Check RESEND_API_KEY.");
+  const now = Date.now();
+  const toList = to.split(",").map((s) => s.trim()).filter(Boolean);
+  if (params.draftId) {
+    await db.prepare("DELETE FROM crypton_emails WHERE id = ?").run(params.draftId);
+  }
+  const id = genId("eml");
+  await db
+    .prepare(
+      "INSERT INTO crypton_emails (id, from_addr, to_addrs, cc, bcc, subject, html, text, folder, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'sent', ?, ?)"
+    )
+    .run(id, "help@thecrypton.xyz", JSON.stringify(toList), JSON.stringify(ccList), JSON.stringify(bccList), params.subject.trim(), params.html, params.text ?? "", now, now);
+  return { ok: true };
+}
+
+export async function adminTrashEmail(token: string, id: string): Promise<void> {
+  const db = await getDb();
+  await requireAdmin(db, token);
+  await db.prepare("UPDATE crypton_emails SET folder = 'trash', updated_at = ? WHERE id = ?").run(Date.now(), id);
+}
+
+export async function adminRestoreEmail(token: string, id: string): Promise<void> {
+  const db = await getDb();
+  await requireAdmin(db, token);
+  const row = (await db.prepare("SELECT folder FROM crypton_emails WHERE id = ?").get(id)) as { folder: string } | undefined;
+  const target = row?.folder === "trash" ? "draft" : "draft";
+  await db.prepare("UPDATE crypton_emails SET folder = ?, updated_at = ? WHERE id = ?").run(target, Date.now(), id);
+}
+
+export async function adminDeleteEmail(token: string, id: string): Promise<void> {
+  const db = await getDb();
+  await requireAdmin(db, token);
+  await db.prepare("DELETE FROM crypton_emails WHERE id = ?").run(id);
 }

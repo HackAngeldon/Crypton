@@ -352,6 +352,32 @@ export const api = {
   async adminAllWallets(): Promise<AdminWalletRow[]> {
     return get<AdminWalletRow[]>('/admin/all-wallets')
   },
+
+  // ── admin email client ──────────────────────────────────────────────
+  async adminListInbox(): Promise<{ emails: unknown[] }> {
+    return get('/admin/email/inbox')
+  },
+  async adminGetInboxEmail(id: string): Promise<{ email: unknown }> {
+    return get(`/admin/email/inbox-detail?id=${encodeURIComponent(id)}`)
+  },
+  async adminListEmails(folder: string): Promise<{ emails: unknown[] }> {
+    return get(`/admin/email/list?folder=${encodeURIComponent(folder)}`)
+  },
+  async adminSaveDraft(params: { id?: string; to: string; cc?: string; bcc?: string; subject: string; html: string; text?: string }): Promise<unknown> {
+    return post('/admin/email/draft', params)
+  },
+  async adminSendEmail(params: { to: string; cc?: string; bcc?: string; subject: string; html: string; text?: string; draftId?: string }): Promise<{ ok: boolean }> {
+    return post('/admin/email/send', params)
+  },
+  async adminTrashEmail(id: string): Promise<void> {
+    await post('/admin/email/trash', { id })
+  },
+  async adminRestoreEmail(id: string): Promise<void> {
+    await post('/admin/email/restore', { id })
+  },
+  async adminDeleteEmail(id: string): Promise<void> {
+    await post('/admin/email/delete', { id })
+  },
 }
 
 /* ------------------------------ price glue ------------------------------- */

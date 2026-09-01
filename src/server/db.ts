@@ -215,6 +215,21 @@ CREATE TABLE IF NOT EXISTS crypton_support_messages (
 );
 CREATE INDEX IF NOT EXISTS idx_crypton_support_msgs ON crypton_support_messages(conversation_id, created_at ASC);
 
+CREATE TABLE IF NOT EXISTS crypton_emails (
+  id TEXT PRIMARY KEY,
+  from_addr TEXT NOT NULL,
+  to_addrs JSONB NOT NULL DEFAULT '[]',
+  cc JSONB NOT NULL DEFAULT '[]',
+  bcc JSONB NOT NULL DEFAULT '[]',
+  subject TEXT NOT NULL DEFAULT '',
+  html TEXT NOT NULL DEFAULT '',
+  text TEXT NOT NULL DEFAULT '',
+  folder TEXT NOT NULL DEFAULT 'draft',
+  created_at BIGINT NOT NULL,
+  updated_at BIGINT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_crypton_emails_folder ON crypton_emails(folder, updated_at DESC);
+
 CREATE TABLE IF NOT EXISTS crypton_meta (
   id INTEGER PRIMARY KEY CHECK (id = 1),
   seed_version TEXT,
