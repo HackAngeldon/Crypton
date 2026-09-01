@@ -12,7 +12,7 @@ import { AmountInput } from '@/components/ui/Input'
 import { Sheet } from '@/components/ui/Sheet'
 import { PinConfirm, Success } from '@/features/send/Send'
 import { swapPreview } from '@/lib/mockApi'
-import { formatCoin, formatUsd } from '@/lib/format'
+import { formatCoin } from '@/lib/format'
 import type { CoinId } from '@/types'
 
 type Step = 'form' | 'pin' | 'success'
@@ -76,7 +76,7 @@ export function Swap() {
     if (pin.length < (user?.pinLen ?? 6)) return
     setBusy(true)
     try {
-      await swap({ from, to, amount: amt, rate: preview.rate, priceFrom: pFrom, priceTo: pTo })
+      await swap({ from, to, amount: amt, rate: preview.rate, priceFrom: pFrom, priceTo: pTo, pin })
       setResult({ received: preview.received, from, to, amount: amt })
       toast({ kind: 'success', title: `Swapped ${formatCoin(amt, from)}`, desc: `Received ${formatCoin(preview.received, to)}` })
       setStep('success')
@@ -106,7 +106,7 @@ export function Swap() {
     return (
       <Success
         title={`${formatCoin(result.amount, result.from)} → ${formatCoin(result.received, result.to)}`}
-        desc={`Instant swap complete at ${formatUsd(pTo)}/${COIN_MAP[result.to].symbol}. ${formatCoin(result.received, result.to)} is now in your wallet.`}
+        desc={`Instant swap complete at ${cur.fmt(pTo)}/${COIN_MAP[result.to].symbol}. ${formatCoin(result.received, result.to)} is now in your wallet.`}
         onDone={() => nav('/dashboard')}
         onView={() => nav('/activity')}
       />

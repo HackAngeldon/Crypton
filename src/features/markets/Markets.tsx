@@ -7,7 +7,7 @@ import { useCurrency } from '@/lib/currency'
 import { COIN_CATALOG } from '@/data/coins'
 import { CoinIcon } from '@/components/CoinIcon'
 import { AssetSparkline } from '@/components/AssetSparkline'
-import { formatPct, formatUsd } from '@/lib/format'
+import { formatPct } from '@/lib/format'
 import { EmptyState } from '@/components/ui/Skeleton'
 
 function useWatchlist() {
@@ -117,7 +117,7 @@ export function Markets() {
                   <span className="truncate text-xs font-normal text-content-faint">{c.name}</span>
                   {c.stable && <span className="rounded bg-up/10 px-1 text-[9px] font-bold text-up">STABLE</span>}
                 </p>
-                <p className="mt-0.5 text-xs tabular text-content-faint">{formatUsd(c.m.price, { decimals: c.m.price < 0.01 ? 4 : c.m.price < 1 ? 3 : 2 })}</p>
+                <p className="mt-0.5 text-xs tabular text-content-faint">{cur.fmt(c.m.price)}</p>
               </div>
               <AssetSparkline coin={c.id} period="24H" width={56} height={24} />
               <div className="w-[72px] text-right">

@@ -5,7 +5,6 @@ export const CURRENCIES: Record<string, { symbol: string; rate: number }> = {
   USD: { symbol: '$', rate: 1 },
   EUR: { symbol: '€', rate: 0.92 },
   GBP: { symbol: '£', rate: 0.79 },
-  NGN: { symbol: '₦', rate: 1550 },
   JPY: { symbol: '¥', rate: 156 },
   KRW: { symbol: '₩', rate: 1380 },
 }

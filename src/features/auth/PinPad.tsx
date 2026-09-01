@@ -10,13 +10,13 @@ export function PinPad({
 }) {
   const keys = ['1', '2', '3', '4', '5', '6', '7', '8', '9']
   return (
-    <div className="mx-auto grid w-full max-w-[260px] grid-cols-3 gap-3">
+    <div className="mx-auto grid w-full max-w-[280px] grid-cols-3 gap-3">
       {keys.map((k) => (
         <PinKey key={k} label={k} onPress={() => onDigit(k)} />
       ))}
-      <div />
+      <div aria-hidden />
       <PinKey label="0" onPress={() => onDigit('0')} />
-      <PinKey icon={<Delete size={20} />} onPress={onDelete} />
+      <PinKey icon={<Delete size={22} />} onPress={onDelete} />
     </div>
   )
 }
@@ -25,7 +25,7 @@ function PinKey({ label, onPress, icon }: { label?: string; onPress: () => void;
   return (
     <button
       onClick={onPress}
-      className="press flex h-14 items-center justify-center rounded-2xl border border-hairlinestrong bg-fill/5 text-xl font-semibold text-content active:bg-fill/10"
+      className="press flex aspect-[1.5] w-full items-center justify-center rounded-2xl border border-hairlinestrong bg-fill/5 text-2xl font-semibold text-content active:bg-fill/10"
     >
       {icon ?? label}
     </button>

@@ -198,11 +198,11 @@ export const api = {
     return get<Tx[]>(`/transactions${q}`)
   },
 
-  async send(params: { asset: CoinId; amount: number; address: string; feeTier: 'low' | 'standard' | 'fast'; price?: number }): Promise<Tx> {
+  async send(params: { asset: CoinId; amount: number; address: string; feeTier: 'low' | 'standard' | 'fast'; price?: number; pin?: string }): Promise<Tx> {
     return post<Tx>('/send', params)
   },
 
-  async sendInternal(params: { toEmail: string; asset: CoinId; amount: number; price?: number }): Promise<Tx> {
+  async sendInternal(params: { toEmail: string; asset: CoinId; amount: number; price?: number; pin?: string }): Promise<Tx> {
     return post<Tx>('/send-internal', params)
   },
 
@@ -210,7 +210,7 @@ export const api = {
     return get(`/lookup?email=${encodeURIComponent(email)}`)
   },
 
-  async buy(params: { asset: CoinId; fiatAmount: number; price?: number }): Promise<Tx> {
+  async buy(params: { asset: CoinId; fiatAmount: number; price?: number; pin?: string }): Promise<Tx> {
     return post<Tx>('/buy', params)
   },
 
@@ -222,7 +222,7 @@ export const api = {
     await post('/deposit-fiat', { amount: params.amount })
   },
 
-  async swap(params: { from: CoinId; to: CoinId; amount: number; rate: number; priceFrom?: number; priceTo?: number }): Promise<{ rate: number; received: number }> {
+  async swap(params: { from: CoinId; to: CoinId; amount: number; rate: number; priceFrom?: number; priceTo?: number; pin?: string }): Promise<{ rate: number; received: number }> {
     return post<{ rate: number; received: number }>('/swap', params)
   },
 

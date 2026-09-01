@@ -11,6 +11,7 @@ import { Sheet } from '@/components/ui/Sheet'
 import { PinDots } from '@/components/ui/Input'
 import { PinPad } from '@/features/auth/PinPad'
 import { CURRENCIES } from '@/lib/format'
+import { getPrefs, setPrefs } from '@/lib/prefs'
 import { LogoMark } from '@/components/ui/Logo'
 import { applyTheme, getTheme } from '@/lib/theme'
 
@@ -45,10 +46,14 @@ export function Settings() {
   const [nextPin, setNextPin] = useState('')
   const [pinStep, setPinStep] = useState<0 | 1 | 2>(0)
   const [pinErr, setPinErr] = useState('')
-  const [bio, setBio] = useState(false)
-  const [alerts, setAlerts] = useState(true)
-  const [push, setPush] = useState(true)
+  const [bio, setBioState] = useState(getPrefs().bio)
+  const [alerts, setAlertsState] = useState(getPrefs().alerts)
+  const [push, setPushState] = useState(getPrefs().push)
   const [dark, setDark] = useState(() => getTheme() === 'dark')
+
+  const setBio = (v: boolean) => { setBioState(v); setPrefs({ bio: v }) }
+  const setAlerts = (v: boolean) => { setAlertsState(v); setPrefs({ alerts: v }) }
+  const setPush = (v: boolean) => { setPushState(v); setPrefs({ push: v }) }
 
   const toggleTheme = (on: boolean) => {
     setDark(on)

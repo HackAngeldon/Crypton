@@ -12,7 +12,7 @@ import { CandlestickChart } from '@/components/chart/Candlestick'
 import { TxRow } from '@/components/TxRow'
 import { Segmented } from '@/components/ui/Segmented'
 import { Button } from '@/components/ui/Button'
-import { formatCoin, formatPct, formatUsd, timeAgo } from '@/lib/format'
+import { formatCoin, formatPct, timeAgo } from '@/lib/format'
 import { candleCountFor, seriesToCandles } from '@/lib/candles'
 import type { CoinId, Period } from '@/types'
 
@@ -59,8 +59,8 @@ export function AssetDetail() {
   const stats = [
     { label: 'Market cap', value: cur.fmt(m?.marketCap ?? 0, true) },
     { label: '24h volume', value: cur.fmt(m?.volume24h ?? 0, true) },
-    { label: '24h high', value: formatUsd(m?.high24h ?? price, { decimals: price < 1 ? 4 : 2 }) },
-    { label: '24h low', value: formatUsd(m?.low24h ?? price, { decimals: price < 1 ? 4 : 2 }) },
+    { label: '24h high', value: cur.fmt(m?.high24h ?? price) },
+    { label: '24h low', value: cur.fmt(m?.low24h ?? price) },
   ]
 
   return (
@@ -81,7 +81,7 @@ export function AssetDetail() {
           </p>
           <div className="mt-1.5 flex items-end gap-2.5">
             <p key={price.toFixed(6)} className="font-display text-[42px] font-bold leading-none tabular text-content">
-              {formatUsd(price, { decimals: price < 0.01 ? 6 : price < 1 ? 4 : 2 })}
+              {cur.fmt(price)}
             </p>
             <span className={`mb-1 flex items-center gap-0.5 rounded-full px-2 py-0.5 text-xs font-bold tabular ${up ? 'bg-up/15 text-up' : 'bg-down/15 text-down'}`}>
               {up ? <ArrowUpRight size={13} /> : <ArrowDownRight size={13} />}
@@ -126,7 +126,7 @@ export function AssetDetail() {
                   data={chart}
                   height={200}
                   color={up ? '#169E64' : '#D23E3E'}
-                  valueFormat={(v) => formatUsd(v, { decimals: v < 1 ? 4 : 2 })}
+                  valueFormat={(v) => cur.fmt(v)}
                 />
               ) : (
                 <div className="h-[200px] animate-pulse rounded-xl bg-fill/5" />
@@ -135,7 +135,7 @@ export function AssetDetail() {
               <CandlestickChart
                 candles={candles}
                 height={200}
-                valueFormat={(v) => formatUsd(v, { decimals: v < 1 ? 4 : 2 })}
+                valueFormat={(v) => cur.fmt(v)}
               />
             ) : (
               <div className="h-[200px] animate-pulse rounded-xl bg-fill/5" />

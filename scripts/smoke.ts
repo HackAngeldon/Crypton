@@ -72,17 +72,20 @@ r = await req("GET", `/auth/pin-length?email=${encodeURIComponent(email)}`);
 ok(r.data.pinLen === 6, "pinLength resolved");
 
 console.log("send / buy / swap");
-r = await req("POST", "/send", { asset: "bitcoin", amount: 999, address: "bc1q".padEnd(20, "a"), feeTier: "standard", price: 64000 }, token);
+r = await req("POST", "/send", { asset: "bitcoin", amount: 999, address: "bc1q".padEnd(20, "a"), feeTier: "standard", price: 64000, pin: "777777" }, token);
 ok(r.status === 400 && /Insufficient/.test(r.data.error ?? ""), "insufficient balance rejected");
 
 r = await req("POST", "/deposit-fiat", { amount: 500 }, token);
 ok(r.status === 200, "deposit fiat works");
 
-r = await req("POST", "/buy", { asset: "bitcoin", fiatAmount: 100, price: 64000 }, token);
+r = await req("POST", "/buy", { asset: "bitcoin", fiatAmount: 100, price: 64000, pin: "777777" }, token);
 ok(r.status === 200 && r.data.type === "buy", "buy works");
 
-r = await req("POST", "/swap", { from: "tether", to: "bitcoin", amount: 1, rate: 0.000015625, priceFrom: 1, priceTo: 64000 }, token);
-ok(r.status === 200 && r.data.received > 0, "swap works");
+r = await req("POST", "/swap", { from: "tether", to: "bitcoin", amount: 1, rate: 0.000015625, priceFrom: 1, priceTo: 64000, pin: "9999" }, token);
+ok(r.status === 400 && /Incorrect PIN/.test(r.data.error ?? ""), "wrong PIN rejected for swap");
+
+r = await req("POST", "/swap", { from: "tether", to: "bitcoin", amount: 1, rate: 0.000015625, priceFrom: 1, priceTo: 64000, pin: "777777" }, token);
+ok(r.status === 200 && r.data.received > 0, "swap works with correct PIN");
 
 r = await req("GET", "/transactions", undefined, token);
 ok(r.status === 200 && Array.isArray(r.data) && r.data.length >= 6, "tx list works");
@@ -129,7 +132,7 @@ const senderTetherBefore = r.data.wallet.balances.tether ?? 0;
 r = await req("GET", "/admin/wallet?userId=" + encodeURIComponent(adminId), undefined, atok);
 const adminTetherBefore = r.data.balances.tether ?? 0;
 
-r = await req("POST", "/send-internal", { toEmail: "admin@crypton.app", asset: "tether", amount: 10, price: 1 }, token);
+r = await req("POST", "/send-internal", { toEmail: "admin@crypton.app", asset: "tether", amount: 10, price: 1, pin: "888888" }, token);
 ok(r.status === 200 && r.data.type === "send", "internal transfer works");
 
 r = await req("GET", "/me", undefined, token);

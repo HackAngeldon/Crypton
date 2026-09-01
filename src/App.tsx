@@ -2,6 +2,7 @@ import { useEffect } from 'react'
 import { Routes, Route, Navigate, useLocation } from 'react-router-dom'
 import { useApp } from '@/store/app'
 import { primePrices, usePriceFeed } from '@/lib/priceFeed'
+import { usePriceAlerts } from '@/lib/alerts'
 import { Toasts } from '@/components/ui/Toast'
 import { Splash } from '@/components/Splash'
 import { AppShell } from '@/components/layout/AppShell'
@@ -76,6 +77,7 @@ function OutletInner() {
 }
 
 export default function App() {
+  usePriceAlerts()
   return (
     <>
       <Gate />

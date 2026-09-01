@@ -139,8 +139,8 @@ export function Send() {
     try {
       const tx =
         mode === 'internal'
-          ? await sendInternal({ toEmail: toEmail.trim(), asset, amount: amt, price })
-          : await send({ asset, amount: amt, address: address.trim(), feeTier, price })
+          ? await sendInternal({ toEmail: toEmail.trim(), asset, amount: amt, price, pin })
+          : await send({ asset, amount: amt, address: address.trim(), feeTier, price, pin })
       setTxId(tx.id)
       setStep('success')
       toast(

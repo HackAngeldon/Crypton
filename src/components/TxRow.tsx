@@ -1,7 +1,8 @@
 import type { Tx } from '@/types'
 import { CoinIcon } from './CoinIcon'
-import { formatCoin, formatUsd, timeAgo } from '@/lib/format'
+import { formatCoin, timeAgo } from '@/lib/format'
 import { COIN_MAP } from '@/data/coins'
+import { useCurrency } from '@/lib/currency'
 import { ArrowUpRight, ArrowDownLeft, Repeat, CreditCard, ShieldCheck } from 'lucide-react'
 
 export function TxIcon({ tx, size = 40 }: { tx: Tx; size?: number }) {
@@ -42,6 +43,7 @@ const TYPE_LABEL: Record<Tx['type'], string> = {
 export function TxRow({ tx, onClick, compact }: { tx: Tx; onClick?: () => void; compact?: boolean }) {
   const isOut = tx.direction === 'out'
   const meta = COIN_MAP[tx.asset]
+  const cur = useCurrency()
   const amtStr = `${isOut ? '−' : '+'}${formatCoin(tx.amount, tx.asset, { compact: true })}`
   const label = TYPE_LABEL[tx.type]
   const counter = tx.type === 'send' ? 'To ' : tx.type === 'receive' ? 'From ' : ''
@@ -68,7 +70,7 @@ export function TxRow({ tx, onClick, compact }: { tx: Tx; onClick?: () => void; 
       </div>
       <div className="shrink-0 text-right">
         <p className={`text-sm font-semibold tabular ${isOut ? 'text-content' : 'text-up'}`}>{amtStr}</p>
-        <p className="mt-0.5 text-xs text-content-faint tabular">{formatUsd(tx.usdValue, { compact: true })}</p>
+        <p className="mt-0.5 text-xs text-content-faint tabular">{cur.fmt(tx.usdValue, true)}</p>
       </div>
     </button>
   )

@@ -140,6 +140,22 @@ async function userByToken(db: Db, token: string): Promise<SessionUser | null> {
   return row ? rowToUser(row) : null;
 }
 
+/** Confirm a transaction PIN against the signed-in user's stored PIN. */
+async function verifyUserPin(db: Db, token: string, pin: unknown): Promise<void> {
+  if (typeof pin !== "string" || !/^\d{4,6}$/.test(pin)) {
+    throw new Error("Enter your PIN to confirm.");
+  }
+  const row = (await db
+    .prepare(
+      `SELECT u.pin_salt, u.pin_hash FROM crypton_sessions s JOIN crypton_users u ON u.id = s.user_id WHERE s.token = ?`
+    )
+    .get(token)) as { pin_salt: string; pin_hash: string } | undefined;
+  if (!row) throw new Error("Not signed in.");
+  if (!verifyPinStored(pin, String(row.pin_salt), String(row.pin_hash))) {
+    throw new Error("Incorrect PIN. Please try again.");
+  }
+}
+
 /* -------------------------------- public ------------------------------- */
 
 export async function register(name: string, email: string, pin: string): Promise<{ token: string; user: SessionUser }> {
@@ -260,9 +276,10 @@ export async function listTxs(token: string, limit?: number): Promise<Tx[]> {
 
 export async function send(
   token: string,
-  params: { asset: CoinId; amount: number; address: string; feeTier: "low" | "standard" | "fast"; price?: number }
+  params: { asset: CoinId; amount: number; address: string; feeTier: "low" | "standard" | "fast"; price?: number; pin?: string }
 ): Promise<Tx> {
   const db = await getDb();
+  await verifyUserPin(db, token, params.pin);
   const user = await userByToken(db, token);
   if (!user) throw new Error("Not signed in.");
   const w = (await db.prepare("SELECT * FROM crypton_wallets WHERE user_id = ?").get(user.id)) as Row | undefined;
@@ -309,9 +326,10 @@ export async function lookupUserPublic(
 /** Instant off-chain transfer between two Crypton wallets (funds already sit in the master wallet). */
 export async function internalSend(
   token: string,
-  params: { toEmail: string; asset: CoinId; amount: number; price?: number }
+  params: { toEmail: string; asset: CoinId; amount: number; price?: number; pin?: string }
 ): Promise<Tx> {
   const db = await getDb();
+  await verifyUserPin(db, token, params.pin);
   const sender = await userByToken(db, token);
   if (!sender) throw new Error("Not signed in.");
   if (params.amount <= 0) throw new Error("Amount must be greater than zero.");
@@ -372,8 +390,9 @@ function creditBuy(
   });
 }
 
-export async function buy(token: string, params: { asset: CoinId; fiatAmount: number; price?: number }): Promise<Tx> {
+export async function buy(token: string, params: { asset: CoinId; fiatAmount: number; price?: number; pin?: string }): Promise<Tx> {
   const db = await getDb();
+  await verifyUserPin(db, token, params.pin);
   const user = await userByToken(db, token);
   if (!user) throw new Error("Not signed in.");
   const w = (await db.prepare("SELECT * FROM crypton_wallets WHERE user_id = ?").get(user.id)) as Row | undefined;
@@ -433,9 +452,10 @@ export async function depositFiat(token: string, amount: number): Promise<Tx> {
 
 export async function swap(
   token: string,
-  params: { from: CoinId; to: CoinId; amount: number; rate: number; priceFrom?: number; priceTo?: number }
+  params: { from: CoinId; to: CoinId; amount: number; rate: number; priceFrom?: number; priceTo?: number; pin?: string }
 ): Promise<{ rate: number; received: number }> {
   const db = await getDb();
+  await verifyUserPin(db, token, params.pin);
   const user = await userByToken(db, token);
   if (!user) throw new Error("Not signed in.");
   const w = (await db.prepare("SELECT * FROM crypton_wallets WHERE user_id = ?").get(user.id)) as Row | undefined;

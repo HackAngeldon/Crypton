@@ -1,12 +1,13 @@
 import { useMemo, useState } from 'react'
 import { Activity as ActivityIcon, Search } from 'lucide-react'
 import { useApp } from '@/store/app'
+import { useCurrency } from '@/lib/currency'
 import { TxRow, TxIcon } from '@/components/TxRow'
 import { PageHeader } from '@/components/PageHeader'
 import { Sheet } from '@/components/ui/Sheet'
 import { EmptyState } from '@/components/ui/Skeleton'
 import { COIN_MAP } from '@/data/coins'
-import { formatCoin, formatDate, formatPct, formatTime, formatUsd } from '@/lib/format'
+import { formatCoin, formatDate, formatPct, formatTime } from '@/lib/format'
 import type { Tx } from '@/types'
 
 type Filter = 'all' | 'sent' | 'received' | 'swap' | 'buy' | 'system'
@@ -106,6 +107,7 @@ export function Activity() {
 
 export function TxDetail({ tx, onClose }: { tx: Tx | null; onClose: () => void }) {
   const meta = tx ? COIN_MAP[tx.asset] : null
+  const cur = useCurrency()
   if (!tx || !meta) return null
   const statusTone = tx.status === 'confirmed' ? 'text-up bg-up/10' : tx.status === 'pending' ? 'text-warn bg-warn/10' : 'text-down bg-down/10'
   return (
@@ -115,7 +117,7 @@ export function TxDetail({ tx, onClose }: { tx: Tx | null; onClose: () => void }
         <p className={`mt-3 text-2xl font-bold tabular ${tx.direction === 'in' ? 'text-up' : 'text-content'}`}>
           {tx.direction === 'in' ? '+' : '−'}{formatCoin(tx.amount, tx.asset)}
         </p>
-        <p className="mt-1 text-sm tabular text-content-faint">{formatUsd(tx.usdValue)}</p>
+        <p className="mt-1 text-sm tabular text-content-faint">{cur.fmt(tx.usdValue)}</p>
         <span className={`mt-3 rounded-full px-3 py-1 text-2xs font-bold uppercase tracking-wider ${statusTone}`}>{tx.status}</span>
       </div>
       <dl className="space-y-3 border-t border-hairline pt-4 text-sm">

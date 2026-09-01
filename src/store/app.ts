@@ -43,12 +43,12 @@ interface AppState {
   refresh: () => Promise<void>
   setCurrency: (c: string) => void
 
-  send: (p: { asset: CoinId; amount: number; address: string; feeTier: 'low' | 'standard' | 'fast'; price?: number }) => Promise<Tx>
-  sendInternal: (p: { toEmail: string; asset: CoinId; amount: number; price?: number }) => Promise<Tx>
-  buy: (p: { asset: CoinId; fiatAmount: number; price?: number }) => Promise<Tx>
+  send: (p: { asset: CoinId; amount: number; address: string; feeTier: 'low' | 'standard' | 'fast'; price?: number; pin?: string }) => Promise<Tx>
+  sendInternal: (p: { toEmail: string; asset: CoinId; amount: number; price?: number; pin?: string }) => Promise<Tx>
+  buy: (p: { asset: CoinId; fiatAmount: number; price?: number; pin?: string }) => Promise<Tx>
   buyCard: (p: { asset: CoinId; fiatAmount: number; price?: number; last4: string }) => Promise<Tx>
   depositFiat: (amount: number) => Promise<void>
-  swap: (p: { from: CoinId; to: CoinId; amount: number; rate: number; priceFrom?: number; priceTo?: number }) => Promise<{ rate: number; received: number }>
+  swap: (p: { from: CoinId; to: CoinId; amount: number; rate: number; priceFrom?: number; priceTo?: number; pin?: string }) => Promise<{ rate: number; received: number }>
   updateProfile: (p: Partial<Pick<User, 'name' | 'email' | 'verified' | 'kycLevel'>>) => Promise<void>
 
   toast: (t: Omit<Toast, 'id'>) => void
@@ -71,6 +71,13 @@ interface AppState {
   adminDeposit: (p: { userId: string; asset: CoinId; amount: number; note?: string; price?: number }) => Promise<void>
 }
 
+let savedCurrency = 'USD'
+try {
+  savedCurrency = localStorage.getItem('crypton.currency') ?? 'USD'
+} catch {
+  /* ignore */
+}
+
 export const useApp = create<AppState>((set, get) => {
   const withWalletTx = async (userId: string) => {
     const { user, wallet } = await api.me(userId)
@@ -91,7 +98,7 @@ export const useApp = create<AppState>((set, get) => {
     user: null,
     wallet: null,
     txs: [],
-    currency: 'USD',
+    currency: savedCurrency,
     announcements: [],
     hiddenCoins: [],
     priceOverrides: {},
@@ -154,6 +161,11 @@ export const useApp = create<AppState>((set, get) => {
 
     changePin: async (cur, next) => {
       await api.changePin(cur, next)
+      const { session } = get()
+      if (session) {
+        const { user } = await api.me(session.userId)
+        set({ user })
+      }
     },
 
     refresh: async () => {
@@ -162,7 +174,14 @@ export const useApp = create<AppState>((set, get) => {
       await refreshMeta()
     },
 
-    setCurrency: (currency) => set({ currency }),
+    setCurrency: (currency) => {
+      try {
+        localStorage.setItem('crypton.currency', currency)
+      } catch {
+        /* ignore */
+      }
+      set({ currency })
+    },
 
     send: async (p) => {
       const { session } = get()
