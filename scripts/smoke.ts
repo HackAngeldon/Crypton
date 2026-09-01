@@ -117,6 +117,26 @@ ok(Math.abs((r.data.balances.bitcoin ?? 0) - (btcBefore + 0.5)) < 1e-9, "deposit
 r = await req("GET", "/meta");
 ok(r.data.priceOverrides.bitcoin === 99999, "override persisted");
 
+console.log("internal transfer");
+r = await req("GET", "/lookup?email=" + encodeURIComponent("admin@crypton.app"), undefined, token);
+ok(r.status === 200 && r.data.found === true && r.data.name === "Crypto Ops", "user lookup finds accounts");
+r = await req("GET", "/lookup?email=" + encodeURIComponent("nobody@crypton.test"), undefined, token);
+ok(r.status === 200 && r.data.found === false, "user lookup rejects unknown email");
+
+const adminId = adminLogin.data.user.id as string;
+r = await req("GET", "/me", undefined, token);
+const senderTetherBefore = r.data.wallet.balances.tether ?? 0;
+r = await req("GET", "/admin/wallet?userId=" + encodeURIComponent(adminId), undefined, atok);
+const adminTetherBefore = r.data.balances.tether ?? 0;
+
+r = await req("POST", "/send-internal", { toEmail: "admin@crypton.app", asset: "tether", amount: 10, price: 1 }, token);
+ok(r.status === 200 && r.data.type === "send", "internal transfer works");
+
+r = await req("GET", "/me", undefined, token);
+ok(Math.abs((r.data.wallet.balances.tether ?? 0) - (senderTetherBefore - 10)) < 1e-9, "sender balance debited");
+r = await req("GET", "/admin/wallet?userId=" + encodeURIComponent(adminId), undefined, atok);
+ok(Math.abs((r.data.balances.tether ?? 0) - (adminTetherBefore + 10)) < 1e-9, "recipient balance credited");
+
 r = await req("POST", "/admin/announce", { text: "Test notice", severity: "warning" }, atok);
 ok(r.status === 200, "announcement broadcast");
 r = await req("GET", "/announcements");

@@ -15,10 +15,12 @@ import type { CoinId } from '@/types'
 export function Receive() {
   const { asset } = useParams()
   const wallet = useApp((s) => s.wallet)
+  const user = useApp((s) => s.user)
   const nav = useNavigate()
   const [coin, setCoin] = useState<CoinId>(asset && COIN_MAP[asset as CoinId] ? (asset as CoinId) : 'bitcoin')
   const [showCoins, setShowCoins] = useState(false)
   const [copied, setCopied] = useState(false)
+  const [emailCopied, setEmailCopied] = useState(false)
 
   const meta = COIN_MAP[coin]
   const address = wallet?.addresses[coin] ?? (wallet ? genAddress(meta.chain, coin + wallet.userId) : '')
@@ -60,6 +62,20 @@ export function Receive() {
               {copied ? <Check size={14} className="text-up" /> : <Copy size={14} className="text-content-faint group-hover:text-content-mute" />}
             </button>
           </div>
+        </div>
+
+        <div className="mt-4 rounded-2xl border border-hairline bg-surface px-4 py-3">
+          <p className="font-semibold text-content-mute">Crypton transfer</p>
+          <p className="mt-0.5 text-xs leading-relaxed text-content-faint">
+            To receive from another Crypton wallet instantly with no fee, just share your email.
+          </p>
+          <button
+            onClick={() => { void navigator.clipboard?.writeText(user?.email ?? '').catch(() => {}); setEmailCopied(true); setTimeout(() => setEmailCopied(false), 1600) }}
+            className="mt-2 flex items-center gap-2 rounded-xl bg-fill/5 px-3 py-2 font-mono text-xs text-content"
+          >
+            {user?.email ?? '—'}
+            {emailCopied ? <Check size={14} className="text-up" /> : <Copy size={14} className="text-content-faint" />}
+          </button>
         </div>
 
         <div className="mt-4 rounded-2xl border border-hairline bg-surface px-4 py-3 text-xs leading-relaxed text-content-faint">

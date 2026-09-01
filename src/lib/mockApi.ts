@@ -202,6 +202,14 @@ export const api = {
     return post<Tx>('/send', params)
   },
 
+  async sendInternal(params: { toEmail: string; asset: CoinId; amount: number; price?: number }): Promise<Tx> {
+    return post<Tx>('/send-internal', params)
+  },
+
+  lookupUser(email: string): Promise<{ found: boolean; name: string | null; email: string }> {
+    return get(`/lookup?email=${encodeURIComponent(email)}`)
+  },
+
   async buy(params: { asset: CoinId; fiatAmount: number; price?: number }): Promise<Tx> {
     return post<Tx>('/buy', params)
   },

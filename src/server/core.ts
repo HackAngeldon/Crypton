@@ -291,6 +291,70 @@ export async function send(
   return rowToTx(txRow);
 }
 
+export async function lookupUserPublic(
+  token: string,
+  email: string
+): Promise<{ found: boolean; name: string | null; email: string }> {
+  const db = await getDb();
+  const user = await userByToken(db, token);
+  if (!user) throw new Error("Not signed in.");
+  const norm = email.trim().toLowerCase();
+  const row = (await db.prepare("SELECT name, email FROM crypton_users WHERE email = ?").get(norm)) as
+    | { name: string; email: string }
+    | undefined;
+  if (!row) return { found: false, name: null, email: norm };
+  return { found: true, name: row.name, email: row.email };
+}
+
+/** Instant off-chain transfer between two Crypton wallets (funds already sit in the master wallet). */
+export async function internalSend(
+  token: string,
+  params: { toEmail: string; asset: CoinId; amount: number; price?: number }
+): Promise<Tx> {
+  const db = await getDb();
+  const sender = await userByToken(db, token);
+  if (!sender) throw new Error("Not signed in.");
+  if (params.amount <= 0) throw new Error("Amount must be greater than zero.");
+
+  const recipient = (await db
+    .prepare("SELECT * FROM crypton_users WHERE email = ?")
+    .get(params.toEmail.trim().toLowerCase())) as Row | undefined;
+  if (!recipient) throw new Error("No Crypton account found for that email.");
+  if (recipient.id === sender.id) throw new Error("You can't send a transfer to yourself.");
+
+  const sw = (await db.prepare("SELECT * FROM crypton_wallets WHERE user_id = ?").get(sender.id)) as Row;
+  const senderWallet = rowToWallet(sw);
+  const bal = senderWallet.balances[params.asset] ?? 0;
+  if (bal < params.amount) throw new Error(`Insufficient ${COIN_MAP[params.asset].symbol} balance.`);
+
+  const rw = (await db.prepare("SELECT * FROM crypton_wallets WHERE user_id = ?").get(String(recipient.id))) as Row | undefined;
+  const recipientWallet = rw ? rowToWallet(rw) : { userId: String(recipient.id), balances: {}, fiat: 0, addresses: {} };
+
+  senderWallet.balances[params.asset] = bal - params.amount;
+  recipientWallet.balances[params.asset] = (recipientWallet.balances[params.asset] ?? 0) + params.amount;
+
+  const price = params.price ?? 0;
+  const ts = Date.now();
+  const txOut = makeTxRow({
+    userId: sender.id, type: "send", asset: params.asset, amount: params.amount, direction: "out",
+    counterparty: String(recipient.email), fee: 0, usdValue: params.amount * price, timestamp: ts,
+    note: `Crypton transfer to ${String(recipient.name)}`,
+  });
+  const txIn = makeTxRow({
+    userId: String(recipient.id), type: "receive", asset: params.asset, amount: params.amount, direction: "in",
+    counterparty: sender.email, fee: 0, usdValue: params.amount * price, timestamp: ts,
+    note: `Crypton transfer from ${sender.name}`,
+  });
+
+  await db.tx(async (cx) => {
+    await cx.prepare("UPDATE crypton_wallets SET balances = ? WHERE user_id = ?").run(JSON.stringify(senderWallet.balances), sender.id);
+    await cx.prepare("UPDATE crypton_wallets SET balances = ? WHERE user_id = ?").run(JSON.stringify(recipientWallet.balances), String(recipient.id));
+    await insertTx(cx, txOut);
+    await insertTx(cx, txIn);
+  });
+  return rowToTx(txOut);
+}
+
 function creditBuy(
   wallet: Wallet,
   userId: string,

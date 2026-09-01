@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
-import { CheckCircle2, ChevronDown, ClipboardPaste, Info, ShieldCheck, Zap, Rocket, Timer } from 'lucide-react'
+import { CheckCircle2, ChevronDown, ClipboardPaste, Info, ShieldCheck, Zap, Rocket, Timer, UserCheck, Check, X, Users } from 'lucide-react'
 import { useApp } from '@/store/app'
 import { usePriceFeed } from '@/lib/priceFeed'
 import { useCurrency } from '@/lib/currency'
@@ -9,13 +9,16 @@ import { CoinIcon } from '@/components/CoinIcon'
 import { PageHeader } from '@/components/PageHeader'
 import { Button } from '@/components/ui/Button'
 import { AmountInput, Field, PinDots, TextInput } from '@/components/ui/Input'
+import { Segmented } from '@/components/ui/Segmented'
 import { Sheet } from '@/components/ui/Sheet'
 import { PinPad } from '@/features/auth/PinPad'
+import { api } from '@/lib/mockApi'
 import { formatCoin, shortAddr } from '@/lib/format'
 import type { CoinId } from '@/types'
 
 type Step = 'form' | 'review' | 'pin' | 'success'
 type FeeTier = 'low' | 'standard' | 'fast'
+type SendMode = 'external' | 'internal'
 
 interface FeeOption {
   id: FeeTier
@@ -39,6 +42,7 @@ export function Send() {
   const wallet = useApp((s) => s.wallet)
   const user = useApp((s) => s.user)
   const send = useApp((s) => s.send)
+  const sendInternal = useApp((s) => s.sendInternal)
   const toast = useApp((s) => s.toast)
   const markets = usePriceFeed((s) => s.markets)
   const cur = useCurrency()
@@ -49,9 +53,12 @@ export function Send() {
   )
 
   const [step, setStep] = useState<Step>('form')
+  const [mode, setMode] = useState<SendMode>('external')
   const [asset, setAsset] = useState<CoinId>(initial && held.includes(initial) ? initial : (held[0] ?? 'bitcoin'))
   const [amount, setAmount] = useState('')
   const [address, setAddress] = useState('')
+  const [toEmail, setToEmail] = useState('')
+  const [lookup, setLookup] = useState<{ status: 'idle' | 'loading' | 'ok' | 'err'; name?: string }>({ status: 'idle' })
   const [feeTier, setFeeTier] = useState<FeeTier>('standard')
   const [showCoins, setShowCoins] = useState(false)
   const [err, setErr] = useState('')
@@ -60,14 +67,38 @@ export function Send() {
   const [busy, setBusy] = useState(false)
   const [txId, setTxId] = useState('')
 
+  useEffect(() => {
+    if (mode !== 'internal') return
+    const email = toEmail.trim().toLowerCase()
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      setLookup({ status: 'idle' })
+      return
+    }
+    let alive = true
+    setLookup((l) => ({ ...l, status: 'loading' }))
+    const t = setTimeout(() => {
+      void api.lookupUser(email)
+        .then((r) => alive && setLookup({ status: r.found ? 'ok' : 'err', name: r.name ?? undefined }))
+        .catch(() => alive && setLookup({ status: 'err' }))
+    }, 450)
+    return () => {
+      alive = false
+      clearTimeout(t)
+    }
+  }, [toEmail, mode])
+
   const meta = COIN_MAP[asset]
   const price = markets[asset]?.price ?? 0
   const amt = parseFloat(amount) || 0
   const balance = wallet?.balances[asset] ?? 0
-  const fee = meta.stable ? 0.5 : amt * FEES.find((f) => f.id === feeTier)!.mult
+  const fee = mode === 'internal' ? 0 : meta.stable ? 0.5 : amt * FEES.find((f) => f.id === feeTier)!.mult
   const total = amt + fee
 
   const setMax = () => {
+    if (mode === 'internal') {
+      setAmount(balance > 0 ? balance.toFixed(Math.min(meta.decimals, 6)) : '0')
+      return
+    }
     const mult = FEES.find((f) => f.id === feeTier)!.mult
     const usable = meta.stable ? Math.max(0, balance - 0.5) : Math.max(0, balance / (1 + mult))
     setAmount(usable > 0 ? usable.toFixed(Math.min(meta.decimals, 6)) : '0')
@@ -82,6 +113,11 @@ export function Send() {
   const validate = () => {
     if (!amt || amt <= 0) return 'Enter an amount to send.'
     if (amt > balance) return `Insufficient ${meta.symbol} balance.`
+    if (mode === 'internal') {
+      if (lookup.status !== 'ok') return 'Enter a valid Crypton recipient email.'
+      if (toEmail.trim().toLowerCase() === user?.email.toLowerCase()) return "You can't send a transfer to yourself."
+      return ''
+    }
     if (total > balance) return `Balance too low to cover the network fee (${formatCoin(fee, asset)}).`
     if (address.trim().length < 12) return 'Enter a valid recipient address.'
     return ''
@@ -101,10 +137,17 @@ export function Send() {
     if (pin.length < (user?.pinLen ?? 6)) return
     setBusy(true)
     try {
-      const tx = await send({ asset, amount: amt, address: address.trim(), feeTier, price })
+      const tx =
+        mode === 'internal'
+          ? await sendInternal({ toEmail: toEmail.trim(), asset, amount: amt, price })
+          : await send({ asset, amount: amt, address: address.trim(), feeTier, price })
       setTxId(tx.id)
       setStep('success')
-      toast({ kind: 'success', title: `Sent ${formatCoin(amt, asset)}`, desc: `Network fee ${formatCoin(fee, asset)} was deducted.` })
+      toast(
+        mode === 'internal'
+          ? { kind: 'success', title: `Sent ${formatCoin(amt, asset)}`, desc: `Delivered to ${lookup.name ?? 'your contact'} instantly.` }
+          : { kind: 'success', title: `Sent ${formatCoin(amt, asset)}`, desc: `Network fee ${formatCoin(fee, asset)} was deducted.` },
+      )
     } catch (e) {
       setPinErr(true)
       setPin('')
@@ -120,6 +163,23 @@ export function Send() {
 
       {step === 'form' && (
         <div className="animate-rise-in px-4 pt-5">
+          {/* mode */}
+          <div className="mb-5">
+            <Segmented
+              options={[
+                { value: 'external', label: 'External address' },
+                { value: 'internal', label: 'Crypton transfer' },
+              ]}
+              value={mode}
+              onChange={(v) => { setMode(v); setErr('') }}
+              className="w-full"
+            />
+            <p className="mt-2 flex items-center gap-1.5 px-0.5 text-xs text-content-faint">
+              <Users size={13} className="text-brand" />
+              {mode === 'internal' ? 'Send instantly to another Crypton wallet — no network fee.' : 'Send to any wallet on any chain.'}
+            </p>
+          </div>
+
           {/* asset */}
           <Field label="Asset">
             <button onClick={() => setShowCoins(true)} className="flex w-full items-center gap-3 rounded-2xl border border-hairline bg-surface px-4 py-3.5">
@@ -148,35 +208,75 @@ export function Send() {
               </div>
             </Field>
             <p className="mt-1.5 px-0.5 text-xs tabular text-content-faint">
-              ≈ {cur.fmt(amt * price)} · fee {formatCoin(fee, asset)}
+              ≈ {cur.fmt(amt * price)} · {mode === 'internal' ? 'free · Crypton transfer' : `fee ${formatCoin(fee, asset)}`}
             </p>
           </div>
 
-          {/* address */}
+          {/* recipient */}
           <div className="mt-4">
-            <Field label="Recipient address">
-              <div className="relative">
-                <TextInput
-                  value={address}
-                  onChange={(e) => setAddress(e.target.value)}
-                  placeholder={`${meta.chain} address`}
-                  className="pr-12 font-mono text-xs"
-                />
-                <button
-                  onClick={() => void navigator.clipboard?.readText().then(setAddress).catch(() => {})}
-                  className="press absolute right-2 top-1/2 -translate-y-1/2 rounded-lg p-2 text-content-mute"
-                  title="Paste"
-                >
-                  <ClipboardPaste size={16} />
-                </button>
-              </div>
-            </Field>
+            {mode === 'external' ? (
+              <Field label="Recipient address">
+                <div className="relative">
+                  <TextInput
+                    value={address}
+                    onChange={(e) => setAddress(e.target.value)}
+                    placeholder={`${meta.chain} address`}
+                    className="pr-12 font-mono text-xs"
+                  />
+                  <button
+                    onClick={() => void navigator.clipboard?.readText().then(setAddress).catch(() => {})}
+                    className="press absolute right-2 top-1/2 -translate-y-1/2 rounded-lg p-2 text-content-mute"
+                    title="Paste"
+                  >
+                    <ClipboardPaste size={16} />
+                  </button>
+                </div>
+              </Field>
+            ) : (
+              <Field
+                label="Recipient email"
+                hint="Enter the email of the Crypton account you want to pay."
+                error={lookup.status === 'err' ? 'No Crypton account found for that email.' : undefined}
+              >
+                <div className="relative">
+                  <TextInput
+                    value={toEmail}
+                    onChange={(e) => setToEmail(e.target.value)}
+                    placeholder="you@crypton.app"
+                    type="email"
+                    autoComplete="email"
+                    className="pr-11"
+                  />
+                  <span className="absolute right-3 top-1/2 -translate-y-1/2">
+                    {lookup.status === 'loading' && <span className="h-4 w-4 animate-spin rounded-full border-2 border-brand border-t-transparent" />}
+                    {lookup.status === 'ok' && <UserCheck size={18} className="text-up" />}
+                    {lookup.status === 'err' && <X size={18} className="text-down" />}
+                  </span>
+                </div>
+                {lookup.status === 'ok' && lookup.name && (
+                  <p className="mt-1.5 flex items-center gap-1 px-0.5 text-xs font-semibold text-up">
+                    <Check size={13} /> Sends to {lookup.name}
+                  </p>
+                )}
+              </Field>
+            )}
           </div>
 
           {/* fee */}
           <div className="mt-5">
-            <p className="px-0.5 text-2xs font-semibold uppercase tracking-wider text-content-faint">Network fee</p>
-            <div className="mt-2 space-y-2">
+            {mode === 'internal' ? (
+              <div className="flex items-center gap-3 rounded-2xl border border-hairline bg-surface px-4 py-3.5">
+                <span className="flex h-9 w-9 items-center justify-center rounded-xl bg-up/10 text-up"><Zap size={16} /></span>
+                <div className="flex-1">
+                  <p className="text-sm font-semibold text-content">No network fee</p>
+                  <p className="text-xs text-content-faint">Instantly settled inside Crypton</p>
+                </div>
+                <span className="text-sm font-semibold text-up">Free</span>
+              </div>
+            ) : (
+              <>
+                <p className="px-0.5 text-2xs font-semibold uppercase tracking-wider text-content-faint">Network fee</p>
+                <div className="mt-2 space-y-2">
               {FEES.map((f) => (
                 <button
                   key={f.id}
@@ -196,7 +296,9 @@ export function Send() {
                   </div>
                 </button>
               ))}
-            </div>
+                </div>
+              </>
+            )}
           </div>
 
           {err && <p className="mt-4 rounded-xl bg-down/10 px-3.5 py-2.5 text-xs text-down">{err}</p>}
@@ -219,14 +321,28 @@ export function Send() {
             <p className="mt-1 text-sm tabular text-content-faint">≈ {cur.fmt(amt * price)}</p>
             <div className="mx-auto mt-4 h-px w-full bg-hairline" />
             <dl className="mt-4 space-y-2.5 text-left text-sm">
-              <Row label="To"><span className="font-mono text-xs">{shortAddr(address, 8)}</span></Row>
-              <Row label="Network"><span>{meta.chain}</span></Row>
-              <Row label="Fee tier"><span className="capitalize">{feeTier}</span></Row>
-              <Row label="Network fee"><span className="tabular">{formatCoin(fee, asset)}</span></Row>
-              <Row label="Total deducted"><span className="tabular font-semibold text-content">{formatCoin(total, asset)}</span></Row>
+              {mode === 'internal' ? (
+                <>
+                  <Row label="To">
+                    <span className="font-semibold">{lookup.name ?? 'Crypton user'}</span>
+                    <span className="ml-1 text-xs text-content-faint">{toEmail}</span>
+                  </Row>
+                  <Row label="Rail"><span>Crypton transfer · instant</span></Row>
+                  <Row label="Network fee"><span className="tabular text-up">Free</span></Row>
+                  <Row label="Total deducted"><span className="tabular font-semibold text-content">{formatCoin(amt, asset)}</span></Row>
+                </>
+              ) : (
+                <>
+                  <Row label="To"><span className="font-mono text-xs">{shortAddr(address, 8)}</span></Row>
+                  <Row label="Network"><span>{meta.chain}</span></Row>
+                  <Row label="Fee tier"><span className="capitalize">{feeTier}</span></Row>
+                  <Row label="Network fee"><span className="tabular">{formatCoin(fee, asset)}</span></Row>
+                  <Row label="Total deducted"><span className="tabular font-semibold text-content">{formatCoin(total, asset)}</span></Row>
+                </>
+              )}
             </dl>
             <p className="mt-4 flex items-center justify-center gap-1.5 rounded-xl bg-warn/10 px-3 py-2 text-xs text-warn">
-              <Info size={13} /> This action cannot be undone. Double-check the address.
+              <Info size={13} /> {mode === 'internal' ? 'This transfer settles instantly and cannot be undone.' : 'This action cannot be undone. Double-check the address.'}
             </p>
           </div>
           <div className="mt-5 grid grid-cols-2 gap-2.5">
@@ -239,7 +355,11 @@ export function Send() {
       {step === 'pin' && (
         <PinConfirm
           title="Confirm with PIN"
-          sub={`Send ${formatCoin(amt, asset)} to ${shortAddr(address, 6)}`}
+          sub={
+            mode === 'internal'
+              ? `Send ${formatCoin(amt, asset)} to ${lookup.name ?? toEmail}`
+              : `Send ${formatCoin(amt, asset)} to ${shortAddr(address, 6)}`
+          }
           pin={pin}
           setPin={setPin}
           error={pinErr || !!err}
@@ -253,7 +373,11 @@ export function Send() {
       {step === 'success' && (
         <Success
           title={`${formatCoin(amt, asset)} sent`}
-          desc={`Arriving on the ${meta.chain} network in ${FEES.find((f) => f.id === feeTier)!.eta}. Reference ${txId.slice(-8).toUpperCase()}.`}
+          desc={
+            mode === 'internal'
+              ? `Delivered instantly to ${lookup.name ?? 'your contact'}. Reference ${txId.slice(-8).toUpperCase()}.`
+              : `Arriving on the ${meta.chain} network in ${FEES.find((f) => f.id === feeTier)!.eta}. Reference ${txId.slice(-8).toUpperCase()}.`
+          }
           onDone={() => nav('/dashboard')}
           onView={() => nav('/activity')}
         />

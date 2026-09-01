@@ -44,6 +44,7 @@ interface AppState {
   setCurrency: (c: string) => void
 
   send: (p: { asset: CoinId; amount: number; address: string; feeTier: 'low' | 'standard' | 'fast'; price?: number }) => Promise<Tx>
+  sendInternal: (p: { toEmail: string; asset: CoinId; amount: number; price?: number }) => Promise<Tx>
   buy: (p: { asset: CoinId; fiatAmount: number; price?: number }) => Promise<Tx>
   buyCard: (p: { asset: CoinId; fiatAmount: number; price?: number; last4: string }) => Promise<Tx>
   depositFiat: (amount: number) => Promise<void>
@@ -167,6 +168,14 @@ export const useApp = create<AppState>((set, get) => {
       const { session } = get()
       if (!session) throw new Error('Not signed in')
       const tx = await api.send(p)
+      await withWalletTx(session.userId)
+      return tx
+    },
+
+    sendInternal: async (p) => {
+      const { session } = get()
+      if (!session) throw new Error('Not signed in')
+      const tx = await api.sendInternal(p)
       await withWalletTx(session.userId)
       return tx
     },

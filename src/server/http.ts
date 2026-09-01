@@ -84,6 +84,8 @@ const DEFS: Array<[string, string, (ctx: Ctx) => Promise<unknown> | unknown]> = 
   ["GET", "/announcements", () => core.announcements()],
 
   ["POST", "/send", ({ token, body }) => core.send(token, body)],
+  ["POST", "/send-internal", ({ token, body }) => core.internalSend(token, body)],
+  ["GET", "/lookup", ({ token, query }) => core.lookupUserPublic(token, query.get("email") ?? "")],
   ["POST", "/buy", ({ token, body }) => core.buy(token, body)],
   ["POST", "/buy-card", ({ token, body }) => core.buyWithCard(token, body)],
   ["POST", "/deposit-fiat", ({ token, body }) => core.depositFiat(token, Number(body.amount))],
