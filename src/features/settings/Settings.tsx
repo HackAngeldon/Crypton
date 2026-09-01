@@ -1,8 +1,8 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
   ShieldCheck, KeyRound, Fingerprint, Lock, Bell, BellRing, Globe,
-  Zap, HelpCircle, ChevronRight, Info, LogOut, Wallet, Moon,
+  Zap, HelpCircle, ChevronRight, Info, LogOut, Wallet, Moon, Headset,
 } from 'lucide-react'
 import { useApp } from '@/store/app'
 import { Avatar } from '@/components/ui/Avatar'
@@ -38,7 +38,15 @@ export function Settings() {
   const logout = useApp((s) => s.logout)
   const changePin = useApp((s) => s.changePin)
   const toast = useApp((s) => s.toast)
+  const supportUnread = useApp((s) => s.supportUnread)
+  const refreshSupportStatus = useApp((s) => s.refreshSupportStatus)
   const nav = useNavigate()
+
+  useEffect(() => {
+    void refreshSupportStatus()
+    const t = setInterval(() => void refreshSupportStatus(), 8000)
+    return () => clearInterval(t)
+  }, [refreshSupportStatus])
 
   const [curSheet, setCurSheet] = useState(false)
   const [pinSheet, setPinSheet] = useState(false)
@@ -129,6 +137,17 @@ export function Settings() {
           {session?.role === 'admin' && (
             <RowBtn icon={Zap} label="Admin control room" sub="Users, balances, markets" onClick={() => nav('/admin')} accent />
           )}
+          <RowBtn
+            icon={Headset}
+            label="Live support"
+            sub={supportUnread > 0 ? `${supportUnread} unread message${supportUnread > 1 ? 's' : ''}` : 'Chat with our team'}
+            onClick={() => nav('/support')}
+            right={
+              supportUnread > 0 ? (
+                <span className="flex h-5 min-w-5 items-center justify-center rounded-full bg-brand px-1.5 text-[10px] font-bold text-white">{supportUnread}</span>
+              ) : undefined
+            }
+          />
           <RowBtn icon={HelpCircle} label="About Crypton" sub="v1.0.0 · self-custody wallet" onClick={() => toast({ kind: 'info', title: 'Crypton', desc: 'Self-custody crypto wallet with live market rates.' })} />
           <RowBtn icon={LogOut} label="Sign out" sub="End this session" onClick={() => void logout()} danger />
         </Section>

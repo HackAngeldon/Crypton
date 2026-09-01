@@ -541,6 +541,130 @@ export async function announcements(): Promise<Announcement[]> {
   return m.announcements.filter((a) => a.active);
 }
 
+/* ------------------------------- live support ---------------------------- */
+
+export interface SupportMessage {
+  id: string;
+  sender: "user" | "admin";
+  body: string;
+  createdAt: number;
+}
+
+function rowToSupportMessage(r: Row): SupportMessage {
+  return {
+    id: String(r.id),
+    sender: r.sender === "admin" ? "admin" : "user",
+    body: String(r.body),
+    createdAt: Number(r.created_at),
+  };
+}
+
+async function ensureSupportConversation(db: Db, userId: string): Promise<string> {
+  const existing = (await db
+    .prepare("SELECT id FROM crypton_support_conversations WHERE user_id = ? ORDER BY updated_at DESC LIMIT 1")
+    .get(userId)) as { id: string } | undefined;
+  if (existing) return String(existing.id);
+  const id = genId("conv");
+  await db.prepare("INSERT INTO crypton_support_conversations (id, user_id, updated_at) VALUES (?, ?, ?)").run(id, userId, Date.now());
+  return id;
+}
+
+export async function userSupportStatus(token: string): Promise<{ conversationId: string | null; unread: number }> {
+  const db = await getDb();
+  const user = await userByToken(db, token);
+  if (!user) throw new Error("Not signed in.");
+  const conv = (await db
+    .prepare("SELECT id, unread_user FROM crypton_support_conversations WHERE user_id = ? ORDER BY updated_at DESC LIMIT 1")
+    .get(user.id)) as { id: string; unread_user: number } | undefined;
+  return { conversationId: conv?.id ?? null, unread: Number(conv?.unread_user ?? 0) };
+}
+
+export async function userSupportMessages(token: string): Promise<SupportMessage[]> {
+  const db = await getDb();
+  const user = await userByToken(db, token);
+  if (!user) throw new Error("Not signed in.");
+  const conv = (await db
+    .prepare("SELECT id FROM crypton_support_conversations WHERE user_id = ? ORDER BY updated_at DESC LIMIT 1")
+    .get(user.id)) as { id: string } | undefined;
+  if (!conv) return [];
+  await db.prepare("UPDATE crypton_support_conversations SET unread_user = 0 WHERE id = ?").run(conv.id);
+  const rows = await db.prepare("SELECT * FROM crypton_support_messages WHERE conversation_id = ? ORDER BY created_at ASC").all(conv.id);
+  return rows.map(rowToSupportMessage);
+}
+
+export async function userSendSupport(token: string, body: string): Promise<SupportMessage> {
+  const db = await getDb();
+  const user = await userByToken(db, token);
+  if (!user) throw new Error("Not signed in.");
+  const text = body.trim();
+  if (!text) throw new Error("Message can't be empty.");
+  const convId = await ensureSupportConversation(db, user.id);
+  const now = Date.now();
+  const msg: SupportMessage = { id: genId("m"), sender: "user", body: text.slice(0, 1000), createdAt: now };
+  await db.tx(async (cx) => {
+    await cx
+      .prepare("INSERT INTO crypton_support_messages (id, conversation_id, sender, body, created_at) VALUES (?, ?, 'user', ?, ?)")
+      .run(msg.id, convId, msg.body, msg.createdAt);
+    await cx.prepare("UPDATE crypton_support_conversations SET unread_admin = unread_admin + 1, updated_at = ? WHERE id = ?").run(now, convId);
+  });
+  return msg;
+}
+
+export interface AdminSupportConversation {
+  conversationId: string;
+  user: { name: string; email: string };
+  lastMessage: string | null;
+  lastAt: number;
+  unreadAdmin: number;
+  status: string;
+}
+
+export async function adminSupportConversations(token: string): Promise<AdminSupportConversation[]> {
+  const db = await getDb();
+  await requireAdmin(db, token);
+  const rows = await db
+    .prepare(
+      `SELECT c.*, u.name AS user_name, u.email AS user_email,
+         (SELECT body FROM crypton_support_messages m WHERE m.conversation_id = c.id ORDER BY m.created_at DESC LIMIT 1) AS last_body,
+         (SELECT created_at FROM crypton_support_messages m WHERE m.conversation_id = c.id ORDER BY m.created_at DESC LIMIT 1) AS last_at
+       FROM crypton_support_conversations c JOIN crypton_users u ON u.id = c.user_id
+       ORDER BY c.updated_at DESC`
+    )
+    .all();
+  return rows.map((r) => ({
+    conversationId: String(r.id),
+    user: { name: String(r.user_name), email: String(r.user_email) },
+    lastMessage: r.last_body ? String(r.last_body) : null,
+    lastAt: Number(r.last_at ?? r.updated_at),
+    unreadAdmin: Number(r.unread_admin),
+    status: String(r.status),
+  }));
+}
+
+export async function adminSupportMessages(token: string, conversationId: string): Promise<SupportMessage[]> {
+  const db = await getDb();
+  await requireAdmin(db, token);
+  await db.prepare("UPDATE crypton_support_conversations SET unread_admin = 0 WHERE id = ?").run(conversationId);
+  const rows = await db.prepare("SELECT * FROM crypton_support_messages WHERE conversation_id = ? ORDER BY created_at ASC").all(conversationId);
+  return rows.map(rowToSupportMessage);
+}
+
+export async function adminSendSupport(token: string, params: { conversationId: string; body: string }): Promise<SupportMessage> {
+  const db = await getDb();
+  await requireAdmin(db, token);
+  const text = params.body.trim();
+  if (!text) throw new Error("Message can't be empty.");
+  const now = Date.now();
+  const msg: SupportMessage = { id: genId("m"), sender: "admin", body: text.slice(0, 1000), createdAt: now };
+  await db.tx(async (cx) => {
+    await cx
+      .prepare("INSERT INTO crypton_support_messages (id, conversation_id, sender, body, created_at) VALUES (?, ?, 'admin', ?, ?)")
+      .run(msg.id, params.conversationId, msg.body, msg.createdAt);
+    await cx.prepare("UPDATE crypton_support_conversations SET unread_user = unread_user + 1, updated_at = ? WHERE id = ?").run(now, params.conversationId);
+  });
+  return msg;
+}
+
 export async function meta(): Promise<DbMeta> {
   const db = await getDb();
   return loadMeta(db);

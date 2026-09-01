@@ -23,6 +23,22 @@ export interface AdminWalletRow {
   wallet: Wallet
 }
 
+export interface SupportMessage {
+  id: string
+  sender: 'user' | 'admin'
+  body: string
+  createdAt: number
+}
+
+export interface AdminSupportConversation {
+  conversationId: string
+  user: { name: string; email: string }
+  lastMessage: string | null
+  lastAt: number
+  unreadAdmin: number
+  status: string
+}
+
 /* ------------------------------ transport ------------------------------- */
 
 const API_BASE = (import.meta.env.VITE_API_BASE as string | undefined) ?? '/api'
@@ -237,6 +253,32 @@ export const api = {
 
   announcements(): Promise<Announcement[]> {
     return get<Announcement[]>('/announcements')
+  },
+
+  /* ------------------------------- support ------------------------------- */
+
+  supportStatus(): Promise<{ conversationId: string | null; unread: number }> {
+    return get('/support')
+  },
+
+  supportMessages(): Promise<SupportMessage[]> {
+    return get('/support/messages')
+  },
+
+  sendSupportMessage(body: string): Promise<SupportMessage> {
+    return post('/support/messages', { body })
+  },
+
+  adminSupportConversations(): Promise<AdminSupportConversation[]> {
+    return get('/admin/support')
+  },
+
+  adminSupportMessages(conversationId: string): Promise<SupportMessage[]> {
+    return get(`/admin/support/messages?conversationId=${encodeURIComponent(conversationId)}`)
+  },
+
+  adminSendSupportMessage(conversationId: string, body: string): Promise<SupportMessage> {
+    return post('/admin/support/messages', { conversationId, body })
   },
 
   getMeta(): Promise<DbMeta> {

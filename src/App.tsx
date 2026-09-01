@@ -18,6 +18,7 @@ import { Settings } from '@/features/settings/Settings'
 import { AssetDetail } from '@/features/asset/AssetDetail'
 import { Send } from '@/features/send/Send'
 import { Receive } from '@/features/receive/Receive'
+import { Support } from '@/features/support/Support'
 import { Buy } from '@/features/buy/Buy'
 import { Portfolio } from '@/features/portfolio/Portfolio'
 import { Profile } from '@/features/profile/Profile'
@@ -66,6 +67,7 @@ function OutletInner() {
         <Route path="/asset/:id" element={<AssetDetail />} />
         <Route path="/send" element={<Send />} />
         <Route path="/receive/:asset?" element={<Receive />} />
+        <Route path="/support" element={<Support />} />
         <Route path="/buy" element={<Buy />} />
         <Route path="/portfolio" element={<Portfolio />} />
         <Route path="/profile" element={<Profile />} />

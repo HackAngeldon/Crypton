@@ -1,13 +1,14 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import {
   LayoutDashboard, Users, CandlestickChart, Megaphone, BookOpenText,
   Snowflake, ShieldCheck, Search, Trash2, Plus, Minus, Zap, Radio, Flame, Eye, EyeOff,
-  Wallet, Copy, Check, LogOut, Clock,
+  Wallet, Copy, Check, LogOut, Clock, Headset, ChevronRight, MessageSquare, Send,
 } from 'lucide-react'
 import { useApp } from '@/store/app'
 import { usePriceFeed } from '@/lib/priceFeed'
 import { useCurrency } from '@/lib/currency'
+import { api, type AdminSupportConversation, type SupportMessage } from '@/lib/mockApi'
 import { COIN_CATALOG, COIN_MAP } from '@/data/coins'
 import { Avatar } from '@/components/ui/Avatar'
 import { LogoMark, Wordmark } from '@/components/ui/Logo'
@@ -19,7 +20,7 @@ import { Button } from '@/components/ui/Button'
 import { formatUsd, formatCoin, timeAgo, shortAddr } from '@/lib/format'
 import type { CoinId, User } from '@/types'
 
-type Tab = 'overview' | 'users' | 'markets' | 'broadcast' | 'ledger'
+type Tab = 'overview' | 'users' | 'markets' | 'broadcast' | 'ledger' | 'support'
 
 const TABS: Array<{ id: Tab; label: string; icon: typeof Users }> = [
   { id: 'overview', label: 'Overview', icon: LayoutDashboard },
@@ -27,6 +28,7 @@ const TABS: Array<{ id: Tab; label: string; icon: typeof Users }> = [
   { id: 'markets', label: 'Markets', icon: CandlestickChart },
   { id: 'broadcast', label: 'Broadcast', icon: Megaphone },
   { id: 'ledger', label: 'Ledger', icon: BookOpenText },
+  { id: 'support', label: 'Support', icon: Headset },
 ]
 
 export function Admin() {
@@ -93,6 +95,8 @@ function AdminPanel() {
         return <BroadcastTab />
       case 'ledger':
         return <LedgerTab users={adminUsers} />
+      case 'support':
+        return <SupportTab />
     }
   }
 
@@ -163,13 +167,13 @@ function AdminPanel() {
         {/* Mobile bottom nav */}
         <nav className="fixed inset-x-0 bottom-0 z-40 lg:hidden">
           <div className="glass border-t border-hairline px-2 pb-[env(safe-area-inset-bottom)] pt-1.5 shadow-tabbar">
-            <div className="grid grid-cols-5">
+            <div className="grid grid-cols-6">
               {TABS.map(({ id, label, icon: Icon }) => (
                 <button key={id} onClick={() => setTab(id)} className="press flex flex-col items-center gap-1 py-1">
                   <span className={`flex h-9 w-9 items-center justify-center rounded-xl transition-colors ${tab === id ? 'text-brand' : 'text-content-faint'}`}>
-                    <Icon size={22} strokeWidth={tab === id ? 2.4 : 2} />
+                    <Icon size={21} strokeWidth={tab === id ? 2.4 : 2} />
                   </span>
-                  <span className={`text-[10px] font-semibold ${tab === id ? 'text-brand' : 'text-content-faint'}`}>{label}</span>
+                  <span className={`text-[9px] font-semibold ${tab === id ? 'text-brand' : 'text-content-faint'}`}>{label}</span>
                 </button>
               ))}
             </div>
@@ -767,6 +771,167 @@ function LedgerTab({ users }: { users: User[] }) {
             </span>
           </div>
         ))}
+      </div>
+    </div>
+  )
+}
+
+/* -------------------------------- support ------------------------------- */
+
+function SupportTab() {
+  const [convs, setConvs] = useState<AdminSupportConversation[]>([])
+  const [active, setActive] = useState<string | null>(null)
+  const [messages, setMessages] = useState<SupportMessage[]>([])
+  const [draft, setDraft] = useState('')
+  const [sending, setSending] = useState(false)
+  const scrollRef = useRef<HTMLDivElement>(null)
+  const activeConv = convs.find((c) => c.conversationId === active)
+
+  const loadConvs = async () => {
+    try {
+      setConvs(await api.adminSupportConversations())
+    } catch {
+      /* ignore */
+    }
+  }
+  const loadMsgs = async (id: string) => {
+    try {
+      setMessages(await api.adminSupportMessages(id))
+    } catch {
+      /* ignore */
+    }
+  }
+
+  useEffect(() => {
+    void loadConvs()
+    const t = setInterval(() => void loadConvs(), 2000)
+    return () => clearInterval(t)
+  }, [])
+
+  useEffect(() => {
+    if (!active) return
+    void loadMsgs(active)
+    const t = setInterval(() => void loadMsgs(active), 2000)
+    return () => clearInterval(t)
+  }, [active])
+
+  useEffect(() => {
+    scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight })
+  }, [messages])
+
+  const openConv = (id: string) => {
+    setActive(id)
+    setMessages([])
+    void loadMsgs(id)
+  }
+
+  const send = async () => {
+    const text = draft.trim()
+    if (!text || !active || sending) return
+    setSending(true)
+    try {
+      await api.adminSendSupportMessage(active, text)
+      setDraft('')
+      await loadMsgs(active)
+    } finally {
+      setSending(false)
+    }
+  }
+
+  const totalUnread = convs.reduce((s, c) => s + c.unreadAdmin, 0)
+
+  return (
+    <div className="animate-rise-in">
+      {!active ? (
+        <>
+          {totalUnread > 0 && (
+            <p className="mb-2 rounded-xl bg-brand/10 px-3.5 py-2 text-xs font-semibold text-brand">
+              {totalUnread} unread customer message{totalUnread > 1 ? 's' : ''}
+            </p>
+          )}
+          <div className="divide-y divide-hairline rounded-2xl border border-hairline bg-surface px-3">
+            {convs.length === 0 && (
+              <p className="py-8 text-center text-xs text-content-faint">
+                No conversations yet. Customers appear here the moment they open live support.
+              </p>
+            )}
+            {convs.map((c) => (
+              <button key={c.conversationId} onClick={() => openConv(c.conversationId)} className="press flex w-full items-center gap-3 py-3 text-left">
+                <Avatar name={c.user.name} size={38} gradient="from-cyan-400 to-violet-500" />
+                <div className="min-w-0 flex-1">
+                  <p className="flex items-center gap-2 text-sm font-semibold text-content">
+                    {c.user.name}
+                    {c.unreadAdmin > 0 && (
+                      <span className="flex h-5 min-w-5 items-center justify-center rounded-full bg-brand px-1.5 text-[10px] font-bold text-white">{c.unreadAdmin}</span>
+                    )}
+                  </p>
+                  <p className="truncate text-xs text-content-faint">{c.lastMessage || 'New conversation'} · {timeAgo(c.lastAt)}</p>
+                </div>
+                <ChevronRight size={16} className="shrink-0 text-content-faint" />
+              </button>
+            ))}
+          </div>
+        </>
+      ) : (
+        <div className="flex h-[calc(100dvh-240px)] min-h-[380px] flex-col rounded-2xl border border-hairline bg-surface lg:h-[560px]">
+          <div className="flex items-center gap-2 border-b border-hairline px-4 py-3">
+            <button onClick={() => setActive(null)} className="press rounded-lg p-1.5 text-content-faint">
+              <ChevronRight size={18} className="rotate-180" />
+            </button>
+            <Avatar name={activeConv?.user.name ?? '?'} size={30} gradient="from-cyan-400 to-violet-500" />
+            <div className="min-w-0 flex-1">
+              <p className="truncate text-sm font-semibold text-content">{activeConv?.user.name}</p>
+              <p className="truncate text-[10px] text-content-faint">{activeConv?.user.email}</p>
+            </div>
+            <span className="flex items-center gap-1.5 rounded-full bg-up/10 px-2 py-0.5 text-[10px] font-bold uppercase text-up">
+              <span className="h-1.5 w-1.5 rounded-full bg-up animate-pulse-soft" /> Live
+            </span>
+          </div>
+
+          <div ref={scrollRef} className="flex-1 space-y-2 overflow-y-auto px-4 py-3">
+            {messages.length === 0 && (
+              <div className="mt-10 text-center">
+                <MessageSquare size={28} className="mx-auto text-content-faint" />
+                <p className="mt-2 text-xs text-content-faint">No messages yet. Say hi to {activeConv?.user.name}.</p>
+              </div>
+            )}
+            {messages.map((m) => (
+              <AdminBubble key={m.id} msg={m} />
+            ))}
+          </div>
+
+          <div className="border-t border-hairline px-4 py-3">
+            <div className="relative">
+              <input
+                value={draft}
+                onChange={(e) => setDraft(e.target.value)}
+                onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); void send() } }}
+                placeholder="Reply as support…"
+                className="h-11 w-full rounded-2xl border border-hairline bg-elevate px-4 pr-12 text-sm text-content placeholder:text-content-faint outline-none transition focus:border-brand/60"
+              />
+              <button
+                onClick={() => void send()}
+                disabled={!draft.trim() || sending}
+                className="press absolute right-1.5 top-1/2 -translate-y-1/2 flex h-8 w-8 items-center justify-center rounded-xl bg-brand text-white disabled:opacity-40"
+                aria-label="Send reply"
+              >
+                <Send size={15} />
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function AdminBubble({ msg }: { msg: SupportMessage }) {
+  const mine = msg.sender === 'admin'
+  return (
+    <div className={`flex ${mine ? 'justify-end' : 'justify-start'}`}>
+      <div className={`max-w-[80%] rounded-2xl px-3.5 py-2.5 text-sm ${mine ? 'bg-brand text-white' : 'border border-hairline bg-surface text-content'}`}>
+        <p className="whitespace-pre-wrap break-words">{msg.body}</p>
+        <p className={`mt-1 text-[10px] ${mine ? 'text-white/60' : 'text-content-faint'}`}>{timeAgo(msg.createdAt)}</p>
       </div>
     </div>
   )

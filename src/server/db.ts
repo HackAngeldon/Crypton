@@ -196,6 +196,25 @@ CREATE TABLE IF NOT EXISTS crypton_reset_codes (
   expires_at BIGINT NOT NULL
 );
 
+CREATE TABLE IF NOT EXISTS crypton_support_conversations (
+  id TEXT PRIMARY KEY,
+  user_id TEXT NOT NULL,
+  status TEXT NOT NULL DEFAULT 'open',
+  unread_user INTEGER NOT NULL DEFAULT 0,
+  unread_admin INTEGER NOT NULL DEFAULT 0,
+  updated_at BIGINT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_crypton_support_user ON crypton_support_conversations(user_id, updated_at DESC);
+
+CREATE TABLE IF NOT EXISTS crypton_support_messages (
+  id TEXT PRIMARY KEY,
+  conversation_id TEXT NOT NULL,
+  sender TEXT NOT NULL,
+  body TEXT NOT NULL,
+  created_at BIGINT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_crypton_support_msgs ON crypton_support_messages(conversation_id, created_at ASC);
+
 CREATE TABLE IF NOT EXISTS crypton_meta (
   id INTEGER PRIMARY KEY CHECK (id = 1),
   seed_version TEXT,

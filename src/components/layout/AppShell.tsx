@@ -13,7 +13,7 @@ const TABS = [
 export function AppShell() {
   const session = useApp((s) => s.session)
   const location = useLocation()
-  const hideBar = ['/send', '/receive', '/buy', '/portfolio', '/admin', '/profile'].some((p) => location.pathname.startsWith(p))
+  const hideBar = ['/send', '/receive', '/buy', '/portfolio', '/admin', '/profile', '/support'].some((p) => location.pathname.startsWith(p))
 
   return (
     <div className="mx-auto flex min-h-[100dvh] w-full max-w-[430px] flex-col bg-canvas">

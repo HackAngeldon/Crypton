@@ -74,6 +74,8 @@ interface AppState {
   adminResolve: (txnId: string, decision: 'approve' | 'reject') => Promise<void>
   adminDeleteUser: (userId: string) => Promise<void>
   adminSetRestriction: (p: { userId: string; key: string; value: boolean }) => Promise<void>
+  supportUnread: number
+  refreshSupportStatus: () => Promise<void>
 }
 
 let savedCurrency = 'USD'
@@ -348,6 +350,12 @@ export const useApp = create<AppState>((set, get) => {
       const { adminUsers } = get()
       const updated = adminUsers.find((u) => u.id === p.userId)
       if (updated && get().user?.id === p.userId) set({ user: updated })
+    },
+
+    supportUnread: 0,
+    refreshSupportStatus: async () => {
+      const { unread } = await api.supportStatus()
+      set({ supportUnread: unread })
     },
   }
 })

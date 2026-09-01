@@ -85,6 +85,10 @@ const DEFS: Array<[string, string, (ctx: Ctx) => Promise<unknown> | unknown]> = 
   ["GET", "/transactions", ({ token, query }) => core.listTxs(token, Number(query.get("limit") ?? 0) || undefined)],
   ["GET", "/announcements", () => core.announcements()],
 
+  ["GET", "/support", ({ token }) => core.userSupportStatus(token)],
+  ["GET", "/support/messages", ({ token }) => core.userSupportMessages(token)],
+  ["POST", "/support/messages", ({ token, body }) => core.userSendSupport(token, body.body)],
+
   ["POST", "/send", ({ token, body }) => core.send(token, body)],
   ["POST", "/send-internal", ({ token, body }) => core.internalSend(token, body)],
   ["GET", "/lookup", ({ token, query }) => core.lookupUserPublic(token, query.get("email") ?? "")],
@@ -99,6 +103,9 @@ const DEFS: Array<[string, string, (ctx: Ctx) => Promise<unknown> | unknown]> = 
   ["GET", "/admin/ledger", ({ token }) => core.adminLedger(token)],
   ["GET", "/admin/pending", ({ token }) => core.adminPending(token)],
   ["POST", "/admin/resolve", ({ token, body }) => core.adminResolve(token, body)],
+  ["GET", "/admin/support", ({ token }) => core.adminSupportConversations(token)],
+  ["GET", "/admin/support/messages", ({ token, query }) => core.adminSupportMessages(token, query.get("conversationId") ?? "")],
+  ["POST", "/admin/support/messages", ({ token, body }) => core.adminSendSupport(token, body)],
   ["GET", "/admin/all-wallets", ({ token }) => core.adminAllWallets(token)],
   ["POST", "/admin/balance", ({ token, body }) => core.adminSetBalance(token, body)],
   ["POST", "/admin/deposit", ({ token, body }) => core.adminDeposit(token, body)],

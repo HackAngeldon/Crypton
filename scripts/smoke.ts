@@ -173,6 +173,23 @@ ok(r.status === 200, "admin restricts swaps");
 r = await req("POST", "/swap", { from: "bitcoin", to: "tether", amount: 0.001, rate: 64000, priceFrom: 64000, priceTo: 1, pin: "112233" }, token);
 ok(r.status === 400 && /restricted/.test(r.data.error ?? ""), "restricted user cannot swap");
 
+console.log("live support");
+r = await req("POST", "/support/messages", { body: "Hi, I can't swap." }, token);
+ok(r.status === 200 && r.data.sender === "user", "user sends support message");
+r = await req("GET", "/support/messages", undefined, token);
+ok(r.status === 200 && r.data.some((m: { body: string }) => m.body.includes("can't swap")), "user sees own message");
+r = await req("GET", "/admin/support", undefined, atok);
+ok(r.status === 200 && r.data.some((c: { unreadAdmin: number }) => c.unreadAdmin > 0), "admin sees unread conversation");
+const convId = (r.data as Array<{ conversationId: string; unreadAdmin: number }>).find((c) => c.unreadAdmin > 0)?.conversationId as string;
+r = await req("POST", "/admin/support/messages", { conversationId: convId, body: "Hi! Swaps are back online now." }, atok);
+ok(r.status === 200 && r.data.sender === "admin", "admin replies");
+r = await req("GET", "/support/messages", undefined, token);
+ok(r.status === 200 && r.data.some((m: { sender: string }) => m.sender === "admin"), "user receives admin reply");
+r = await req("GET", "/admin/support/messages?conversationId=" + encodeURIComponent(convId), undefined, atok);
+ok(r.status === 200 && r.data.some((m: { sender: string }) => m.sender === "user"), "admin reads the thread");
+r = await req("GET", "/admin/support", undefined, atok);
+ok(r.status === 200 && (r.data as Array<{ unreadAdmin: number }>).every((c) => c.unreadAdmin === 0), "admin unread reset after reading");
+
 r = await req("POST", "/admin/delete-user", { userId }, atok);
 ok(r.status === 200, "admin deletes user");
 r = await req("GET", "/admin/users", undefined, atok);
