@@ -128,7 +128,7 @@ export function Onboarding() {
           setLocalErr('No account found for that email.')
           return
         }
-        setResetSentCode(res.code)
+        setResetSentCode(res.code ?? '')
         setResetCode('')
         setResetStep('code')
       } catch (e) {
@@ -242,7 +242,7 @@ export function Onboarding() {
           {resetStep === 'code' && (
             <>
               <h1 className="font-display text-2xl font-bold text-content">Enter the reset code</h1>
-              <p className="mt-2 text-sm text-content-faint">We sent a 6-digit code to {resetEmail}.</p>
+              <p className="mt-2 text-sm text-content-faint">We emailed a 6-digit code to {resetEmail}.</p>
               {resetSentCode && (
                 <div className="mt-4 rounded-xl border border-brand/30 bg-brand/10 px-3.5 py-2.5">
                   <p className="text-xs text-content-faint">Demo delivery — your code is</p>

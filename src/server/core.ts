@@ -2,6 +2,7 @@ import { randomBytes } from "node:crypto";
 import type { Announcement, CoinId, Tx, User, Wallet } from "../types.js";
 import { COIN_CATALOG, COIN_MAP } from "../data/coins.js";
 import { getDb, loadMeta, verifyPinStored, type Db, type DbMeta, type Row } from "./db.js";
+import { sendEmail } from "./email.js";
 import { genAddress, genId } from "../lib/sim.js";
 
 export interface SessionUser {
@@ -252,11 +253,13 @@ export async function pinLength(email: string): Promise<number> {
   return Number(row?.pin_len ?? 6);
 }
 
-export async function requestPinReset(email: string): Promise<{ sent: boolean; code: string }> {
+export async function requestPinReset(email: string): Promise<{ sent: boolean; code?: string }> {
   const db = await getDb();
   const norm = email.trim().toLowerCase();
-  const exists = await db.prepare("SELECT 1 FROM crypton_users WHERE email = ?").get(norm);
-  if (!exists) return { sent: false, code: "" };
+  const user = (await db.prepare("SELECT name, email FROM crypton_users WHERE email = ?").get(norm)) as
+    | { name: string; email: string }
+    | undefined;
+  if (!user) return { sent: false };
   const code = String(Math.floor(100000 + Math.random() * 900000));
   const expires = Date.now() + 10 * 60 * 1000;
   await db
@@ -265,7 +268,24 @@ export async function requestPinReset(email: string): Promise<{ sent: boolean; c
        ON CONFLICT (email) DO UPDATE SET code = EXCLUDED.code, expires_at = EXCLUDED.expires_at`
     )
     .run(norm, code, expires);
-  return { sent: true, code };
+
+  const delivered = await sendEmail(
+    user.email,
+    "Reset your Crypton PIN",
+    `<div style="font-family:Inter,Arial,sans-serif;max-width:480px;margin:0 auto;padding:24px;background:#ffffff;border:1px solid #e4e9ee;border-radius:16px">
+       <p style="margin:0;font-size:14px;color:#181c21">Hi ${escapeHtml(user.name)},</p>
+       <p style="margin:16px 0;font-size:14px;line-height:1.6;color:#606a75">Use the code below to reset your Crypton PIN. It expires in 10 minutes.</p>
+       <div style="text-align:center;margin:24px 0"><span style="display:inline-block;padding:14px 24px;border-radius:12px;background:#eaf1fa;font-size:26px;font-weight:700;letter-spacing:6px;color:#2566af">${code}</span></div>
+       <p style="margin:0;font-size:12px;color:#8a929a">If you didn't request this, you can safely ignore this email.</p>
+     </div>`
+  );
+
+  // Only surface the code directly when email delivery isn't available (dev/test).
+  return { sent: true, ...(delivered ? {} : { code }) };
+}
+
+function escapeHtml(s: string): string {
+  return s.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c] as string);
 }
 
 export async function resetPin(email: string, code: string, newPin: string): Promise<void> {

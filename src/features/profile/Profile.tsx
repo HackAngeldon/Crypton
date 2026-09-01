@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
-import { BadgeCheck, ShieldCheck, Lock, LogOut, Pencil, ArrowLeft } from 'lucide-react'
+import { BadgeCheck, Lock, LogOut, Pencil, ArrowLeft } from 'lucide-react'
 import { useApp } from '@/store/app'
 import { Avatar } from '@/components/ui/Avatar'
 import { Button } from '@/components/ui/Button'
@@ -45,12 +45,9 @@ export function Profile() {
           <h2 className="mt-3 font-display text-xl font-bold text-content">{user?.name}</h2>
           <p className="mt-0.5 text-sm text-content-faint">{user?.email}</p>
           <div className="mt-3 flex gap-2">
-            {user?.verified ? (
+            {user?.verified && (
               <span className="chip !text-up bg-up/10 border-up/25"><BadgeCheck size={12} /> Verified</span>
-            ) : (
-              <span className="chip bg-warn/10 border-warn/25 !text-warn">Unverified</span>
             )}
-            <span className="chip"><ShieldCheck size={12} className="text-brand" /> KYC L{user?.kycLevel ?? 0}</span>
           </div>
           <Button size="sm" variant="ghost" className="mt-4" onClick={() => { setName(user?.name ?? ''); setEdit(true) }}>
             <Pencil size={14} /> Edit profile

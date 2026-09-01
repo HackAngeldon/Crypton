@@ -196,7 +196,7 @@ export const api = {
     await post('/auth/change-pin', { current, next })
   },
 
-  async requestPinReset(email: string): Promise<{ sent: boolean; code: string }> {
+  async requestPinReset(email: string): Promise<{ sent: boolean; code?: string }> {
     return post('/auth/request-reset', { email })
   },
 

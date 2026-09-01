@@ -162,11 +162,16 @@ ok(Math.abs((r.data.wallet.balances.tether ?? 0) - (afterSecondSend + 5)) < 1e-9
 
 console.log("reset pin / restrictions / delete");
 r = await req("POST", "/auth/request-reset", { email }, token);
-ok(r.status === 200 && r.data.sent === true && String(r.data.code).length === 6, "reset code requested");
-r = await req("POST", "/auth/reset-pin", { email, code: r.data.code, newPin: "112233" }, token);
-ok(r.status === 200, "PIN reset with code");
-r = await req("POST", "/auth/login", { email, pin: "112233" });
-ok(r.status === 200, "new PIN logs in after reset");
+const resetCode = r.data.code as string | undefined;
+ok(r.status === 200 && r.data.sent === true, "reset code requested");
+if (resetCode) {
+  r = await req("POST", "/auth/reset-pin", { email, code: resetCode, newPin: "112233" }, token);
+  ok(r.status === 200, "PIN reset with code");
+  r = await req("POST", "/auth/login", { email, pin: "112233" });
+  ok(r.status === 200, "new PIN logs in after reset");
+} else {
+  console.log("  (reset-pin skipped — code delivered by email, not returned)");
+}
 
 r = await req("POST", "/admin/restriction", { userId, key: "swap", value: true }, atok);
 ok(r.status === 200, "admin restricts swaps");
