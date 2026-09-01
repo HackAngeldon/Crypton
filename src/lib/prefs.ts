@@ -5,7 +5,7 @@ export interface Prefs {
 }
 
 const KEY = 'crypton.prefs'
-const DEFAULTS: Prefs = { bio: false, alerts: true, push: true }
+const DEFAULTS: Prefs = { bio: false, alerts: false, push: true }
 
 export function getPrefs(): Prefs {
   try {
