@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useNavigate, useSearchParams } from 'react-router-dom'
-import { ChevronDown, Gift, Landmark, Lock, ShieldCheck, Sparkles } from 'lucide-react'
+import { ChevronDown, Gift, Landmark, Lock, ShieldCheck } from 'lucide-react'
 import { useApp } from '@/store/app'
 import { usePriceFeed } from '@/lib/priceFeed'
 import { useCurrency } from '@/lib/currency'
@@ -13,7 +13,7 @@ import { AmountInput, Field, TextInput } from '@/components/ui/Input'
 import { Sheet } from '@/components/ui/Sheet'
 import { Success } from '@/features/send/Send'
 import { formatCoin } from '@/lib/format'
-import { MARITIME_DEMO_CARD, formatCardNumber, formatExpiry, maritimeCharge } from '@/lib/maritime'
+import { formatCardNumber, formatExpiry, maritimeCharge } from '@/lib/maritime'
 import type { CoinId } from '@/types'
 
 type Step = 'form' | 'checkout' | 'success'
@@ -55,13 +55,6 @@ export function Buy() {
     if (!amt || amt <= 0) return setErr('Enter an amount to buy.')
     setErr('')
     setStep('checkout')
-  }
-
-  const fillDemoCard = () => {
-    setCardNo(MARITIME_DEMO_CARD.number)
-    setCardExp(MARITIME_DEMO_CARD.expiry)
-    setCardCvv(MARITIME_DEMO_CARD.cvv)
-    setErr('')
   }
 
   const doCardBuy = async () => {
@@ -244,10 +237,6 @@ export function Buy() {
                 </div>
               </Field>
             </div>
-
-            <button onClick={fillDemoCard} className="mt-4 flex w-full items-center justify-center gap-1.5 rounded-xl bg-brand/10 px-3 py-2.5 text-xs font-bold text-brand">
-              <Sparkles size={13} /> Autofill card details
-            </button>
 
             {err && <p className="mt-3 rounded-xl bg-down/10 px-3.5 py-2.5 text-xs text-down">{err}</p>}
 
