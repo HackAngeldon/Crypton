@@ -262,7 +262,7 @@ export const api = {
   },
 
   async adminClearAnnounce(id: string): Promise<void> {
-    await post('/admin/announce/clear', { id })
+    await post('/admin/announce', { id })
   },
 
   async adminAddFiat(userId: string, amount: number): Promise<void> {

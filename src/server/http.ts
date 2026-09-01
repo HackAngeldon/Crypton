@@ -99,8 +99,7 @@ const DEFS: Array<[string, string, (ctx: Ctx) => Promise<unknown> | unknown]> = 
   ["POST", "/admin/spread", ({ token, body }) => core.adminSetSpread(token, Number(body.pct))],
   ["POST", "/admin/override-price", ({ token, body }) => core.adminOverridePrice(token, body.asset, body.price === null ? null : Number(body.price))],
   ["POST", "/admin/coin", ({ token, body }) => core.adminToggleCoin(token, body.asset, Boolean(body.hidden))],
-  ["POST", "/admin/announce", ({ token, body }) => core.adminAnnounce(token, body.text, body.severity)],
-  ["POST", "/admin/announce/clear", ({ token, body }) => core.adminClearAnnounce(token, body.id)],
+  ["POST", "/admin/announce", ({ token, body }) => (body.id ? core.adminClearAnnounce(token, body.id) : core.adminAnnounce(token, body.text, body.severity))],
   ["POST", "/admin/add-fiat", ({ token, body }) => core.adminAddFiat(token, body.userId, Number(body.amount))],
 ];
 
