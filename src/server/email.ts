@@ -1,5 +1,12 @@
-const RESEND_KEY = process.env.RESEND_API_KEY;
-const FROM = process.env.EMAIL_FROM ?? "no-reply@thecrypton.xyz";
+function getResendKey(): string | undefined {
+  return process.env.RESEND_API_KEY;
+}
+function getFrom(): string {
+  return process.env.EMAIL_FROM ?? "no-reply@thecrypton.xyz";
+}
+export function getSupportEmail(): string {
+  return process.env.SUPPORT_EMAIL ?? "help@thecrypton.xyz";
+}
 export const SUPPORT_EMAIL = process.env.SUPPORT_EMAIL ?? "help@thecrypton.xyz";
 
 /**
@@ -7,15 +14,16 @@ export const SUPPORT_EMAIL = process.env.SUPPORT_EMAIL ?? "help@thecrypton.xyz";
  * isn't configured or the request fails, so callers can fall back gracefully.
  */
 export async function sendEmail(to: string, subject: string, html: string): Promise<boolean> {
-  if (!RESEND_KEY) return false;
+  const key = getResendKey();
+  if (!key) return false;
   try {
     const res = await fetch("https://api.resend.com/emails", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        Authorization: `Bearer ${RESEND_KEY}`,
+        Authorization: `Bearer ${key}`,
       },
-      body: JSON.stringify({ from: FROM, to: [to], subject, html }),
+      body: JSON.stringify({ from: getFrom(), to: [to], subject, html }),
     });
     return res.ok;
   } catch {
@@ -45,18 +53,32 @@ export type ReceivedEmailDetail = ReceivedEmail & {
 };
 
 async function authHeaders(): Promise<Headers> {
-  if (!RESEND_KEY) throw new Error("RESEND_API_KEY is not configured");
-  return new Headers({ Authorization: `Bearer ${RESEND_KEY}` });
+  const key = getResendKey();
+  if (!key) throw new Error("RESEND_API_KEY is not configured");
+  return new Headers({ Authorization: `Bearer ${key}` });
 }
 
 export async function listReceivedEmails(limit = 50): Promise<ReceivedEmail[]> {
-  const res = await fetch(
-    `https://api.resend.com/emails/receiving?limit=${Math.min(100, Math.max(1, limit))}`,
-    { headers: await authHeaders(), cache: "no-store" as RequestCache },
-  );
-  if (!res.ok) throw new Error(`Resend error ${res.status}: ${await res.text()}`);
-  const json = (await res.json()) as { data?: ReceivedEmail[] };
-  return json.data ?? [];
+  try {
+    const res = await fetch(
+      `https://api.resend.com/emails/receiving?limit=${Math.min(100, Math.max(1, limit))}`,
+      { headers: await authHeaders(), cache: "no-store" as RequestCache },
+    );
+    if (!res.ok) {
+      if (res.status === 404 || res.status === 403 || res.status === 401) {
+        // Resend inbound receiving is not enabled or supported on this plan/key
+        return [];
+      }
+      throw new Error(`Resend error ${res.status}: ${await res.text()}`);
+    }
+    const json = (await res.json()) as { data?: ReceivedEmail[] };
+    return json.data ?? [];
+  } catch (err) {
+    if ((err as Error).message.includes("not configured")) {
+      throw err;
+    }
+    return [];
+  }
 }
 
 export async function getReceivedEmail(id: string): Promise<ReceivedEmailDetail> {
@@ -76,16 +98,17 @@ export async function sendSupportEmail(opts: {
   html: string;
   text?: string;
 }): Promise<boolean> {
-  if (!RESEND_KEY) return false;
+  const key = getResendKey();
+  if (!key) return false;
   try {
     const res = await fetch("https://api.resend.com/emails", {
       method: "POST",
       headers: {
-        Authorization: `Bearer ${RESEND_KEY}`,
+        Authorization: `Bearer ${key}`,
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        from: SUPPORT_EMAIL,
+        from: getSupportEmail(),
         to: [opts.to],
         cc: opts.cc?.length ? opts.cc : undefined,
         bcc: opts.bcc?.length ? opts.bcc : undefined,

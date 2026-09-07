@@ -9,9 +9,16 @@ export class ApiError extends Error {
   }
 }
 
+function setCors(res: ServerResponse): void {
+  res.setHeader("Access-Control-Allow-Origin", "*");
+  res.setHeader("Access-Control-Allow-Methods", "GET, POST, PUT, PATCH, DELETE, OPTIONS");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
+}
+
 function json(res: ServerResponse, status: number, data: unknown): void {
   const payload = data === undefined ? "{}" : JSON.stringify(data);
   res.statusCode = status;
+  setCors(res);
   res.setHeader("Content-Type", "application/json");
   res.setHeader("Content-Length", Buffer.byteLength(payload));
   res.end(payload);
@@ -132,9 +139,21 @@ for (const [method, path, fn] of DEFS) {
 }
 
 export async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> {
+  setCors(res);
   const method = (req.method ?? "GET").toUpperCase();
-  const path = new URL(req.url ?? "/", "http://localhost").pathname.replace(/^\/api/, "") || "/";
-  const handler = routeHandlers[`${method} ${path}`];
+  if (method === "OPTIONS") {
+    res.statusCode = 204;
+    res.end();
+    return;
+  }
+  let path = new URL(req.url ?? "/", "http://localhost").pathname.replace(/^\/api/, "") || "/";
+  let handler = routeHandlers[`${method} ${path}`];
+  if (!handler && !path.startsWith("/admin") && routeHandlers[`${method} /admin${path}`]) {
+    handler = routeHandlers[`${method} /admin${path}`];
+  }
+  if (!handler && !path.startsWith("/auth") && routeHandlers[`${method} /auth${path}`]) {
+    handler = routeHandlers[`${method} /auth${path}`];
+  }
   if (!handler) {
     json(res, 404, { error: `No route for ${method} ${path}` });
     return;
