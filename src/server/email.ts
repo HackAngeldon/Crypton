@@ -62,7 +62,7 @@ export async function listReceivedEmails(limit = 50): Promise<ReceivedEmail[]> {
   try {
     const res = await fetch(
       `https://api.resend.com/emails/receiving?limit=${Math.min(100, Math.max(1, limit))}`,
-      { headers: await authHeaders(), cache: "no-store" as RequestCache },
+      { headers: await authHeaders(), cache: "no-store" },
     );
     if (!res.ok) {
       if (res.status === 404 || res.status === 403 || res.status === 401) {
@@ -84,7 +84,7 @@ export async function listReceivedEmails(limit = 50): Promise<ReceivedEmail[]> {
 export async function getReceivedEmail(id: string): Promise<ReceivedEmailDetail> {
   const res = await fetch(`https://api.resend.com/emails/receiving/${encodeURIComponent(id)}`, {
     headers: await authHeaders(),
-    cache: "no-store" as RequestCache,
+    cache: "no-store",
   });
   if (!res.ok) throw new Error(`Resend error ${res.status}: ${await res.text()}`);
   return (await res.json()) as ReceivedEmailDetail;
