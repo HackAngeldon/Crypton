@@ -101,7 +101,8 @@ export function MailClient() {
     setError(null);
     try {
       const res = await api.adminListInbox();
-      setInbox((res as unknown as { emails: InboxEmail[] }).emails ?? []);
+      const list = (res as unknown as { emails: InboxEmail[] })?.emails ?? (res as unknown as InboxEmail[]);
+      setInbox(Array.isArray(list) ? list : []);
       setRestricted(false);
     } catch (e) {
       const msg = (e as Error).message;
@@ -352,7 +353,10 @@ export function MailClient() {
                         setSelectedId(m.id);
                         setDetail(null);
                         setLocalDetail(null);
-                        api.adminGetInboxEmail(m.id).then((r: unknown) => setDetail((r as { email: InboxDetail }).email)).catch(() => {});
+                        api.adminGetInboxEmail(m.id).then((r: unknown) => {
+                          const item = (r as { email: InboxDetail })?.email ?? (r as InboxDetail);
+                          setDetail(item);
+                        }).catch(() => {});
                       }}
                       className={`flex w-full flex-col gap-1 px-4 py-3 text-left transition ${selectedId === m.id ? "bg-brand/10" : "hover:bg-elevate"}`}
                     >

@@ -984,16 +984,18 @@ function rowToAdminEmail(r: Row): AdminEmail {
   };
 }
 
-export async function adminListInbox(token: string): Promise<unknown> {
+export async function adminListInbox(token: string): Promise<{ emails: unknown[] }> {
   const db = await getDb();
   await requireAdmin(db, token);
-  return listReceivedEmails(50);
+  const emails = await listReceivedEmails(50);
+  return { emails };
 }
 
-export async function adminGetInboxEmail(token: string, id: string): Promise<unknown> {
+export async function adminGetInboxEmail(token: string, id: string): Promise<{ email: unknown }> {
   const db = await getDb();
   await requireAdmin(db, token);
-  return getReceivedEmail(id);
+  const email = await getReceivedEmail(id);
+  return { email };
 }
 
 export async function adminListEmails(token: string, folder: string): Promise<AdminEmail[]> {
