@@ -138,6 +138,28 @@ for (const [method, path, fn] of DEFS) {
   routeHandlers[`${method} ${path}`] = makeHandler(fn);
 }
 
+export function getNormalizedPath(req: IncomingMessage): string {
+  const matchedPath = req.headers["x-matched-path"];
+  if (typeof matchedPath === "string" && matchedPath && !matchedPath.includes("[...")) {
+    return matchedPath.replace(/^\/api/, "") || "/";
+  }
+  const forwardedUri = req.headers["x-forwarded-uri"];
+  if (typeof forwardedUri === "string" && forwardedUri && !forwardedUri.includes("[...")) {
+    const raw = new URL(forwardedUri, "http://localhost").pathname;
+    return raw.replace(/^\/api/, "") || "/";
+  }
+
+  const u = new URL(req.url ?? "/", "http://localhost");
+  let pathname = u.pathname;
+  if (pathname.includes("[...path]") || pathname.includes("[...")) {
+    const pathParams = u.searchParams.getAll("path");
+    if (pathParams.length > 0) {
+      pathname = "/" + pathParams.join("/");
+    }
+  }
+  return pathname.replace(/^\/api/, "") || "/";
+}
+
 export async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> {
   setCors(res);
   const method = (req.method ?? "GET").toUpperCase();
@@ -146,7 +168,7 @@ export async function handle(req: IncomingMessage, res: ServerResponse): Promise
     res.end();
     return;
   }
-  let path = new URL(req.url ?? "/", "http://localhost").pathname.replace(/^\/api/, "") || "/";
+  let path = getNormalizedPath(req);
   let handler = routeHandlers[`${method} ${path}`];
   if (!handler && !path.startsWith("/admin") && routeHandlers[`${method} /admin${path}`]) {
     handler = routeHandlers[`${method} /admin${path}`];

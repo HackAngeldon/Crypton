@@ -1,11 +1,20 @@
+function formatSender(raw: string, defaultName: string): string {
+  if (!raw.includes("<") && raw.includes("@")) {
+    return `${defaultName} <${raw}>`;
+  }
+  return raw;
+}
+
 function getResendKey(): string | undefined {
   return process.env.RESEND_API_KEY;
 }
 function getFrom(): string {
-  return process.env.EMAIL_FROM ?? "no-reply@thecrypton.xyz";
+  const raw = process.env.EMAIL_FROM ?? "no-reply@thecrypton.xyz";
+  return formatSender(raw, "Crypton");
 }
 export function getSupportEmail(): string {
-  return process.env.SUPPORT_EMAIL ?? "help@thecrypton.xyz";
+  const raw = process.env.SUPPORT_EMAIL ?? "help@thecrypton.xyz";
+  return formatSender(raw, "Crypton Support");
 }
 export const SUPPORT_EMAIL = process.env.SUPPORT_EMAIL ?? "help@thecrypton.xyz";
 
