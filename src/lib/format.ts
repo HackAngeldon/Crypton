@@ -18,6 +18,7 @@ export function formatUsd(
   const abs = Math.abs(n)
   if (compact && abs >= 1000) {
     const units = [
+      { v: 1e12, s: 'T' },
       { v: 1e9, s: 'B' },
       { v: 1e6, s: 'M' },
       { v: 1e3, s: 'K' },
@@ -37,7 +38,14 @@ export function formatCoin(
   const meta = COIN_MAP[coin]
   const abs = Math.abs(n)
   if (opts.compact && abs >= 1000) {
-    return `${(n / 1000).toFixed(2)}K ${meta.symbol}`
+    const units = [
+      { v: 1e12, s: 'T' },
+      { v: 1e9, s: 'B' },
+      { v: 1e6, s: 'M' },
+      { v: 1e3, s: 'K' },
+    ]
+    const u = units.find((x) => abs >= x.v)
+    if (u) return `${(n / u.v).toFixed(2)}${u.s} ${meta.symbol}`
   }
   let d = 2
   if (abs < 1 && abs >= 0.0001) d = 4

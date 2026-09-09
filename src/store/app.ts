@@ -62,6 +62,8 @@ interface AppState {
   adminRefreshExtended: () => Promise<void>
   adminOpenUser: (userId: string) => Promise<void>
   adminSetBalance: (p: { userId: string; asset: CoinId; amount: number; note?: string; price?: number }) => Promise<void>
+  adminSetFiat: (p: { userId: string; amount: number; note?: string }) => Promise<void>
+  adminSetUserLimits: (p: { userId: string; kycLevel?: number; verified?: boolean; dailyLimit?: number | null; withdrawalLimit?: number | null; unlimited?: boolean }) => Promise<void>
   adminToggleFreeze: (userId: string) => Promise<void>
   adminSetSpread: (pct: number) => Promise<void>
   adminOverridePrice: (asset: CoinId, price: number | null) => Promise<void>
@@ -278,6 +280,25 @@ export const useApp = create<AppState>((set, get) => {
       else if (get().adminWallet && p.userId === get().adminWallet!.userId) {
         set({ adminWallet: await api.adminGetWallet(p.userId) })
       }
+    },
+
+    adminSetFiat: async (p) => {
+      await api.adminSetFiat(p)
+      await get().adminRefreshUsers()
+      await get().refresh()
+      const { session } = get()
+      if (session && p.userId === session.userId) await get().boot(session)
+      else if (get().adminWallet && p.userId === get().adminWallet!.userId) {
+        set({ adminWallet: await api.adminGetWallet(p.userId) })
+      }
+    },
+
+    adminSetUserLimits: async (p) => {
+      await api.adminSetUserLimits(p)
+      await get().adminRefreshUsers()
+      await get().refresh()
+      const { session } = get()
+      if (session && p.userId === session.userId) await get().boot(session)
     },
 
     adminToggleFreeze: async (userId) => {

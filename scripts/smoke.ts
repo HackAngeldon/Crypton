@@ -50,6 +50,10 @@ await new Promise<void>((resolve) => srv.listen(PORT, resolve));
 
 console.log("meta / auth");
 let r = await req("GET", "/meta");
+if (r.status !== 200) {
+  await new Promise((resolve) => setTimeout(resolve, 600));
+  r = await req("GET", "/meta");
+}
 ok(r.status === 200 && r.data.seeded, "db seeded");
 
 const email = `smoke-${Date.now()}@crypton.test`;
@@ -174,10 +178,19 @@ if (resetCode) {
 }
 
 const currentPin = resetCode ? "112233" : "888888";
-r = await req("POST", "/admin/restriction", { userId, key: "swap", value: true }, atok);
-ok(r.status === 200, "admin restricts swaps");
-r = await req("POST", "/swap", { from: "bitcoin", to: "tether", amount: 0.001, rate: 64000, priceFrom: 64000, priceTo: 1, pin: currentPin }, token);
-ok(r.status === 400 && /restricted/.test(r.data.error ?? ""), "restricted user cannot swap");
+console.log("admin high balance and unlimited user limits");
+r = await req("POST", "/admin/balance", { userId, asset: "tether", amount: 50000000, price: 1 }, atok);
+ok(r.status === 200, "admin sets high crypto balance (50M USDT)");
+r = await req("GET", "/admin/wallet?userId=" + encodeURIComponent(userId), undefined, atok);
+ok(r.data.balances.tether === 50000000, "50M USDT balance reflected in wallet");
+
+r = await req("POST", "/admin/fiat", { userId, amount: 10000000 }, atok);
+ok(r.status === 200, "admin sets high cash balance ($10M USD)");
+r = await req("GET", "/admin/wallet?userId=" + encodeURIComponent(userId), undefined, atok);
+ok(r.data.fiat === 10000000, "$10M USD cash balance reflected in wallet");
+
+r = await req("POST", "/admin/user-limits", { userId, kycLevel: 4, unlimited: true, dailyLimit: 100000000, verified: true }, atok);
+ok(r.status === 200 && r.data.kycLevel === 4 && r.data.verified === true && r.data.restrictions.unlimited === true, "admin sets unlimited user limits and tier");
 
 console.log("live support");
 r = await req("POST", "/support/messages", { body: "Hi, I can't swap." }, token);

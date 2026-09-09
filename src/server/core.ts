@@ -309,6 +309,7 @@ export async function resetPin(email: string, code: string, newPin: string): Pro
 
 /** Throws if the account has the given feature restricted by an admin. */
 async function assertNotRestricted(user: SessionUser, key: string, label: string): Promise<void> {
+  if (user.restrictions?.unlimited) return;
   if (user.restrictions?.[key]) {
     throw new Error(`${label} is restricted on this account. Contact support.`);
   }
@@ -798,6 +799,85 @@ export async function adminDeleteUser(token: string, userId: string): Promise<vo
     await cx.prepare("DELETE FROM crypton_wallets WHERE user_id = ?").run(userId);
     await cx.prepare("DELETE FROM crypton_users WHERE id = ?").run(userId);
   });
+}
+
+export async function adminSetFiat(
+  token: string,
+  params: { userId: string; amount: number; note?: string }
+): Promise<Tx> {
+  const db = await getDb();
+  await requireAdmin(db, token);
+  const w = (await db.prepare("SELECT * FROM crypton_wallets WHERE user_id = ?").get(params.userId)) as Row | undefined;
+  if (!w) throw new Error("Wallet not found.");
+  const wallet = rowToWallet(w);
+  const prev = wallet.fiat ?? 0;
+  const target = Math.max(0, params.amount);
+  const delta = target - prev;
+  wallet.fiat = target;
+  const type = delta >= 0 ? "admin_credit" : "admin_debit";
+  const row = makeTxRow({
+    userId: params.userId,
+    type,
+    asset: "usd-coin",
+    amount: Math.abs(delta),
+    direction: delta >= 0 ? "in" : "out",
+    usdValue: Math.abs(delta),
+    timestamp: Date.now(),
+    note: params.note ?? (delta >= 0 ? "Admin USD cash credit" : "Admin USD cash adjustment"),
+  });
+  await db.tx(async (cx) => {
+    await cx.prepare("UPDATE crypton_wallets SET fiat = ? WHERE user_id = ?").run(wallet.fiat, params.userId);
+    await insertTx(cx, row);
+  });
+  return rowToTx(row);
+}
+
+export async function adminSetUserLimits(
+  token: string,
+  params: {
+    userId: string;
+    kycLevel?: number;
+    verified?: boolean;
+    dailyLimit?: number | null;
+    withdrawalLimit?: number | null;
+    unlimited?: boolean;
+  }
+): Promise<SessionUser> {
+  const db = await getDb();
+  await requireAdmin(db, token);
+  const row = (await db.prepare("SELECT * FROM crypton_users WHERE id = ?").get(params.userId)) as Row | undefined;
+  if (!row) throw new Error("User not found.");
+
+  const restrictions = { ...((row.restrictions as Record<string, unknown>) ?? {}) };
+  if (params.unlimited !== undefined) {
+    if (params.unlimited) restrictions.unlimited = true;
+    else delete restrictions.unlimited;
+  }
+  if (params.dailyLimit !== undefined) {
+    if (params.dailyLimit !== null && params.dailyLimit >= 0) restrictions.dailyLimit = params.dailyLimit;
+    else delete restrictions.dailyLimit;
+  }
+  if (params.withdrawalLimit !== undefined) {
+    if (params.withdrawalLimit !== null && params.withdrawalLimit >= 0) restrictions.withdrawalLimit = params.withdrawalLimit;
+    else delete restrictions.withdrawalLimit;
+  }
+
+  const sets: string[] = ["restrictions = ?"];
+  const vals: unknown[] = [JSON.stringify(restrictions)];
+
+  if (params.kycLevel !== undefined && params.kycLevel >= 0) {
+    sets.push("kyc_level = ?");
+    vals.push(params.kycLevel);
+  }
+  if (params.verified !== undefined) {
+    sets.push("verified = ?");
+    vals.push(params.verified ? 1 : 0);
+  }
+
+  vals.push(params.userId);
+  await db.prepare(`UPDATE crypton_users SET ${sets.join(", ")} WHERE id = ?`).run(...vals);
+  const fresh = (await db.prepare("SELECT * FROM crypton_users WHERE id = ?").get(params.userId)) as Row;
+  return rowToUser(fresh);
 }
 
 export async function adminSetRestriction(

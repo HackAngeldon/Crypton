@@ -115,6 +115,8 @@ const DEFS: Array<[string, string, (ctx: Ctx) => Promise<unknown> | unknown]> = 
   ["POST", "/admin/support/messages", ({ token, body }) => core.adminSendSupport(token, body)],
   ["GET", "/admin/all-wallets", ({ token }) => core.adminAllWallets(token)],
   ["POST", "/admin/balance", ({ token, body }) => core.adminSetBalance(token, body)],
+  ["POST", "/admin/fiat", ({ token, body }) => core.adminSetFiat(token, body)],
+  ["POST", "/admin/user-limits", ({ token, body }) => core.adminSetUserLimits(token, body)],
   ["POST", "/admin/deposit", ({ token, body }) => core.adminDeposit(token, body)],
   ["GET", "/admin/email/inbox", ({ token }) => core.adminListInbox(token)],
   ["GET", "/admin/email/inbox-detail", ({ token, query }) => core.adminGetInboxEmail(token, query.get("id") ?? "")],

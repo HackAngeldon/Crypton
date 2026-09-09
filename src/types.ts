@@ -9,9 +9,9 @@ export interface User {
   role: Role
   frozen: boolean
   verified: boolean
-  kycLevel: 0 | 1 | 2
+  kycLevel: number
   color: string
-  restrictions: Record<string, boolean>
+  restrictions: Record<string, boolean | number | string>
   createdAt: number
   lastSeen: number
 }

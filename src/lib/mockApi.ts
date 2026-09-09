@@ -114,9 +114,9 @@ interface ServerUser {
   role: 'user' | 'admin'
   frozen: boolean
   verified: boolean
-  kycLevel: 0 | 1 | 2
+  kycLevel: number
   color: string
-  restrictions: Record<string, boolean>
+  restrictions: Record<string, boolean | number | string>
   createdAt: number
   lastSeen: number
 }
@@ -297,6 +297,22 @@ export const api = {
 
   async adminSetBalance(params: { userId: string; asset: CoinId; amount: number; note?: string; price?: number }): Promise<Tx> {
     return post<Tx>('/admin/balance', params)
+  },
+
+  async adminSetFiat(params: { userId: string; amount: number; note?: string }): Promise<Tx> {
+    return post<Tx>('/admin/fiat', params)
+  },
+
+  async adminSetUserLimits(params: {
+    userId: string
+    kycLevel?: number
+    verified?: boolean
+    dailyLimit?: number | null
+    withdrawalLimit?: number | null
+    unlimited?: boolean
+  }): Promise<User> {
+    const u = await post<ServerUser>('/admin/user-limits', params)
+    return mapUser(u)
   },
 
   async adminToggleFreeze(userId: string, frozen: boolean): Promise<User> {

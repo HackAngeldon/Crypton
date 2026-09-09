@@ -4,6 +4,7 @@ import {
   LayoutDashboard, Users, CandlestickChart, Megaphone, BookOpenText,
   Snowflake, ShieldCheck, Search, Trash2, Plus, Minus, Zap, Radio, Flame, Eye, EyeOff,
   Wallet, Copy, Check, LogOut, Clock, Headset, ChevronRight, MessageSquare, Send, Mail,
+  BadgeCheck, Infinity as InfinityIcon, Sliders,
 } from 'lucide-react'
 import { useApp } from '@/store/app'
 import { usePriceFeed } from '@/lib/priceFeed'
@@ -359,11 +360,17 @@ function UsersTab({ users }: { users: User[] }) {
 }
 
 function UserDetail({ user, onClose }: { user: User | null; onClose: () => void }) {
-  const [balance, setBalance] = useState<Partial<Record<CoinId, string>>>({})
+  const [balance, setBalance] = useState<Partial<Record<CoinId | 'fiat', string>>>({})
+  const [selectedAsset, setSelectedAsset] = useState<CoinId | 'fiat'>('fiat')
+  const [customAssetAmount, setCustomAssetAmount] = useState('')
   const [depositCoin, setDepositCoin] = useState<CoinId>('bitcoin')
   const [depositAmount, setDepositAmount] = useState('')
   const [confirmDelete, setConfirmDelete] = useState(false)
+  const [savingLimits, setSavingLimits] = useState(false)
+
   const adminSetBalance = useApp((s) => s.adminSetBalance)
+  const adminSetFiat = useApp((s) => s.adminSetFiat)
+  const adminSetUserLimits = useApp((s) => s.adminSetUserLimits)
   const adminDeposit = useApp((s) => s.adminDeposit)
   const adminToggleFreeze = useApp((s) => s.adminToggleFreeze)
   const adminOpenUser = useApp((s) => s.adminOpenUser)
@@ -374,15 +381,35 @@ function UserDetail({ user, onClose }: { user: User | null; onClose: () => void 
   const markets = usePriceFeed((s) => s.markets)
   const liveUser = useApp((s) => s.adminUsers.find((u) => u.id === user?.id))
 
+  const curUser = liveUser ?? user
+  const restrictions = curUser?.restrictions ?? {}
+  const [kycTier, setKycTier] = useState<number>(curUser?.kycLevel ?? 0)
+  const [unlimited, setUnlimited] = useState<boolean>(Boolean(restrictions.unlimited))
+  const [dailyLimit, setDailyLimit] = useState<string>(
+    restrictions.dailyLimit !== undefined && restrictions.dailyLimit !== null ? String(restrictions.dailyLimit) : ''
+  )
+  const [withdrawalLimit, setWithdrawalLimit] = useState<string>(
+    restrictions.withdrawalLimit !== undefined && restrictions.withdrawalLimit !== null ? String(restrictions.withdrawalLimit) : ''
+  )
+  const [isVerified, setIsVerified] = useState<boolean>(Boolean(curUser?.verified))
+
   useEffect(() => {
-    if (user) void adminOpenUser(user.id)
-    else setBalance({})
-  }, [user, adminOpenUser])
+    if (user) {
+      void adminOpenUser(user.id)
+      setKycTier(curUser?.kycLevel ?? 0)
+      setUnlimited(Boolean(restrictions.unlimited))
+      setDailyLimit(restrictions.dailyLimit !== undefined && restrictions.dailyLimit !== null ? String(restrictions.dailyLimit) : '')
+      setWithdrawalLimit(restrictions.withdrawalLimit !== undefined && restrictions.withdrawalLimit !== null ? String(restrictions.withdrawalLimit) : '')
+      setIsVerified(Boolean(curUser?.verified))
+    } else {
+      setBalance({})
+    }
+  }, [user, adminOpenUser, curUser?.kycLevel, curUser?.verified, restrictions.unlimited, restrictions.dailyLimit, restrictions.withdrawalLimit])
 
   if (!user) return null
   const w = adminWallet && adminWallet.userId === user.id ? adminWallet : null
   const held = (Object.entries(w?.balances ?? {}) as Array<[CoinId, number]>).filter(([, a]) => a > 0)
-  const restrictions = liveUser?.restrictions ?? user.restrictions ?? {}
+  const userCash = w?.fiat ?? 0
 
   const toggleRestriction = async (key: string, value: boolean) => {
     await adminSetRestriction({ userId: user.id, key, value })
@@ -393,6 +420,42 @@ function UserDetail({ user, onClose }: { user: User | null; onClose: () => void 
     await adminDeleteUser(user.id)
     onClose()
     toast({ kind: 'success', title: 'Account deleted', desc: `${user.name}'s account was removed.` })
+  }
+
+  const applyLimits = async () => {
+    setSavingLimits(true)
+    try {
+      const dLim = dailyLimit.trim() === '' ? null : parseFloat(dailyLimit)
+      const wLim = withdrawalLimit.trim() === '' ? null : parseFloat(withdrawalLimit)
+      await adminSetUserLimits({
+        userId: user.id,
+        kycLevel: kycTier,
+        unlimited,
+        dailyLimit: dLim !== null && !isNaN(dLim) ? dLim : null,
+        withdrawalLimit: wLim !== null && !isNaN(wLim) ? wLim : null,
+        verified: isVerified,
+      })
+      toast({ kind: 'success', title: 'User limits updated', desc: `${user.name}'s limits and account tier saved.` })
+    } catch (e) {
+      toast({ kind: 'error', title: 'Failed to update limits', desc: (e as Error).message })
+    } finally {
+      setSavingLimits(false)
+    }
+  }
+
+  const applyFiat = async () => {
+    const v = parseFloat(balance.fiat ?? '')
+    if (isNaN(v) || v < 0) return
+    await adminSetFiat({ userId: user.id, amount: v, note: 'Admin cash adjustment' })
+    setBalance((p) => ({ ...p, fiat: '' }))
+    toast({ kind: 'success', title: 'Cash balance updated', desc: `USD Cash set to $${v.toLocaleString('en-US')}` })
+  }
+
+  const creditFiat = async (delta: number) => {
+    const curBal = w?.fiat ?? 0
+    const target = Math.max(0, curBal + delta)
+    await adminSetFiat({ userId: user.id, amount: target, note: delta > 0 ? 'Admin cash credit' : 'Admin cash debit' })
+    toast({ kind: 'success', title: `${delta > 0 ? 'Credited' : 'Debited'} USD Cash`, desc: `${delta > 0 ? '+' : ''}$${Math.abs(delta).toLocaleString('en-US')}` })
   }
 
   const apply = async (id: CoinId, note?: string) => {
@@ -407,6 +470,19 @@ function UserDetail({ user, onClose }: { user: User | null; onClose: () => void 
     const curBal = w?.balances[id] ?? 0
     await adminSetBalance({ userId: user.id, asset: id, amount: Math.max(0, curBal + delta), note: delta > 0 ? 'Admin credit' : 'Admin debit', price: markets[id]?.price })
     toast({ kind: 'success', title: `${delta > 0 ? 'Credited' : 'Debited'} ${COIN_MAP[id].symbol}`, desc: `${delta > 0 ? '+' : ''}${formatCoin(delta, id)}` })
+  }
+
+  const applyCustomAsset = async () => {
+    const v = parseFloat(customAssetAmount)
+    if (isNaN(v) || v < 0) return
+    if (selectedAsset === 'fiat') {
+      await adminSetFiat({ userId: user.id, amount: v, note: 'Admin cash adjustment' })
+      toast({ kind: 'success', title: 'Cash balance updated', desc: `USD Cash set to $${v.toLocaleString('en-US')}` })
+    } else {
+      await adminSetBalance({ userId: user.id, asset: selectedAsset, amount: v, note: 'Admin adjustment', price: markets[selectedAsset]?.price })
+      toast({ kind: 'success', title: 'Balance updated', desc: `${COIN_MAP[selectedAsset].symbol} set to ${formatCoin(v, selectedAsset)}` })
+    }
+    setCustomAssetAmount('')
   }
 
   const doDeposit = async () => {
@@ -431,43 +507,265 @@ function UserDetail({ user, onClose }: { user: User | null; onClose: () => void 
     }>
       <div className="flex items-center gap-3">
         <Avatar name={user.name} size={48} gradient={user.color} />
-        <div>
+        <div className="min-w-0 flex-1">
           <p className="flex items-center gap-1.5 font-display text-base font-bold text-content">
-            {user.name} {user.role === 'admin' && <ShieldCheck size={15} className="text-brand" />}
+            {user.name}
+            {user.role === 'admin' && <ShieldCheck size={15} className="text-brand" />}
+            {isVerified && <BadgeCheck size={15} className="text-up" />}
           </p>
-          <p className="text-xs text-content-faint">{user.email} · {user.frozen ? 'FROZEN' : 'active'}</p>
+          <p className="truncate text-xs text-content-faint">{user.email} · {user.frozen ? 'FROZEN' : 'active'}</p>
+          <div className="mt-1 flex flex-wrap items-center gap-1.5">
+            <span className={`chip text-[10px] ${unlimited ? 'bg-brand/15 text-brand border-brand/30' : 'bg-fill/10 text-content-mute'}`}>
+              <InfinityIcon size={11} /> {unlimited ? 'Unlimited limits' : `Tier ${kycTier}`}
+            </span>
+            {isVerified && <span className="chip text-[10px] bg-up/10 text-up border-up/20">Verified</span>}
+          </div>
         </div>
       </div>
 
-      <p className="mt-5 text-2xs font-semibold uppercase tracking-wider text-content-faint">Adjust balances</p>
-      <div className="mt-2 divide-y divide-hairline rounded-2xl border border-hairline bg-surface px-3">
-        {held.length === 0 && <p className="py-6 text-center text-xs text-content-faint">This user holds no assets.</p>}
-        {held.map(([id, amt]) => (
-          <div key={id} className="flex items-center gap-2.5 py-2.5">
-            <CoinIcon coin={id} size={30} />
-            <div className="w-16">
-              <p className="text-sm font-semibold text-content">{COIN_MAP[id].symbol}</p>
-              <p className="text-[10px] tabular text-content-faint">{formatCoin(amt, id, { compact: true })}</p>
-            </div>
-            <div className="flex flex-1 items-center gap-1.5">
-              <button onClick={() => void credit(id, -1)} className="press flex h-8 w-8 items-center justify-center rounded-lg bg-down/10 text-down"><Minus size={14} /></button>
-              <input
-                value={balance[id] ?? ''}
-                onChange={(e) => setBalance((p) => ({ ...p, [id]: e.target.value.replace(/[^0-9.]/g, '') }))}
-                placeholder={String(amt)}
-                inputMode="decimal"
-                className="h-9 w-full min-w-0 rounded-lg border border-hairline bg-elevate px-2 text-center font-mono text-xs tabular text-content placeholder:text-content-faint outline-none focus:border-brand/60"
-              />
-              <button onClick={() => void credit(id, 1)} className="press flex h-8 w-8 items-center justify-center rounded-lg bg-up/10 text-up"><Plus size={14} /></button>
-            </div>
-            <button onClick={() => void apply(id, 'Admin adjustment')} className="shrink-0 rounded-lg bg-brand/15 px-2.5 py-1.5 text-2xs font-bold text-brand">
-              Set
+      {/* ── User Limits & Account Tier ────────────────────────────────── */}
+      <div className="mt-6 rounded-2xl border border-brand/30 bg-brand/5 p-4">
+        <div className="flex items-center justify-between">
+          <p className="flex items-center gap-2 text-xs font-bold uppercase tracking-wider text-brand">
+            <Sliders size={14} /> Account limits & KYC tier
+          </p>
+          <span className="rounded-full bg-brand/15 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wider text-brand">
+            Adjustable
+          </span>
+        </div>
+        <p className="mt-1 text-xs text-content-faint">
+          Adjust user limits to any custom amount or enable unlimited mode to remove all restrictions.
+        </p>
+
+        {/* KYC Tier Selector */}
+        <div className="mt-4">
+          <p className="text-2xs font-semibold uppercase tracking-wider text-content-faint">KYC Tier Level</p>
+          <div className="mt-1.5 grid grid-cols-5 gap-1.5">
+            {[
+              { lvl: 0, label: 'T0 Standard', limit: '$2.5K' },
+              { lvl: 1, label: 'T1 Verified', limit: '$25K' },
+              { lvl: 2, label: 'T2 Pro', limit: '$100K' },
+              { lvl: 3, label: 'T3 VIP', limit: '$1M' },
+              { lvl: 4, label: 'T4 Unlimited', limit: '∞' },
+            ].map((t) => (
+              <button
+                key={t.lvl}
+                onClick={() => {
+                  setKycTier(t.lvl)
+                  if (t.lvl === 4) setUnlimited(true)
+                }}
+                className={`flex flex-col items-center justify-center rounded-xl border p-2 text-center transition ${
+                  kycTier === t.lvl
+                    ? 'border-brand bg-brand/15 text-brand font-bold shadow-sm'
+                    : 'border-hairline bg-surface text-content-mute hover:bg-fill/5'
+                }`}
+              >
+                <span className="text-[11px] leading-tight font-semibold">{t.label.split(' ')[0]}</span>
+                <span className="text-[9px] text-content-faint">{t.limit}</span>
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Unlimited Mode Toggle */}
+        <div className="mt-4 flex items-center justify-between rounded-xl border border-hairline bg-surface p-3">
+          <div>
+            <p className="flex items-center gap-1.5 text-xs font-bold text-content">
+              <InfinityIcon size={14} className="text-brand" /> Unlimited limits
+            </p>
+            <p className="text-[11px] text-content-faint">Remove all daily, withdrawal & transaction caps for this user</p>
+          </div>
+          <Toggle on={unlimited} onChange={setUnlimited} />
+        </div>
+
+        {/* Custom Daily Limit Input */}
+        <div className="mt-3">
+          <p className="text-2xs font-semibold uppercase tracking-wider text-content-faint">Custom Daily Limit ($)</p>
+          <div className="relative mt-1">
+            <span className="absolute left-3 top-1/2 -translate-y-1/2 font-mono text-xs font-bold text-content-faint">$</span>
+            <input
+              value={dailyLimit}
+              onChange={(e) => setDailyLimit(e.target.value.replace(/[^0-9.]/g, ''))}
+              placeholder={unlimited ? 'Unlimited (∞)' : 'e.g. 5000000'}
+              inputMode="decimal"
+              className="h-10 w-full rounded-xl border border-hairline bg-surface pl-7 pr-3 font-mono text-xs tabular text-content placeholder:text-content-faint outline-none focus:border-brand/60"
+            />
+          </div>
+          <div className="mt-1.5 flex flex-wrap gap-1.5">
+            {[50_000, 250_000, 1_000_000, 10_000_000, 100_000_000].map((amt) => (
+              <button
+                key={amt}
+                onClick={() => { setDailyLimit(String(amt)); setUnlimited(false) }}
+                className="rounded-lg bg-surface border border-hairline px-2 py-1 text-[10px] font-semibold text-content-mute hover:text-content"
+              >
+                +${amt >= 1e6 ? `${amt / 1e6}M` : `${amt / 1e3}K`}
+              </button>
+            ))}
+            <button
+              onClick={() => { setDailyLimit(''); setUnlimited(true) }}
+              className="rounded-lg bg-brand/10 border border-brand/20 px-2 py-1 text-[10px] font-bold text-brand"
+            >
+              ∞ Unlimited
             </button>
           </div>
-        ))}
+        </div>
+
+        {/* Verified User Toggle */}
+        <div className="mt-3 flex items-center justify-between rounded-xl border border-hairline bg-surface p-3">
+          <div>
+            <p className="flex items-center gap-1.5 text-xs font-bold text-content">
+              <BadgeCheck size={14} className="text-up" /> Verified badge
+            </p>
+            <p className="text-[11px] text-content-faint">Grant verified identity status</p>
+          </div>
+          <Toggle on={isVerified} onChange={setIsVerified} />
+        </div>
+
+        <Button
+          block
+          size="sm"
+          onClick={() => void applyLimits()}
+          loading={savingLimits}
+          className="mt-4"
+        >
+          Save limits & tier
+        </Button>
       </div>
 
-      <div className="mt-5">
+      {/* ── Adjust Balances (Unrestricted) ─────────────────────────────── */}
+      <div className="mt-6">
+        <div className="flex items-center justify-between">
+          <p className="text-2xs font-semibold uppercase tracking-wider text-content-faint">Adjust account balances</p>
+          <span className="text-[10px] text-content-faint">No upper limits</span>
+        </div>
+
+        {/* Cash / Fiat USD Balance */}
+        <div className="mt-2 rounded-2xl border border-hairline bg-surface p-3">
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2.5">
+              <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-up/10 text-up font-bold text-sm">$</span>
+              <div>
+                <p className="text-sm font-semibold text-content">USD Cash</p>
+                <p className="text-[10px] font-mono tabular text-content-faint">${userCash.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</p>
+              </div>
+            </div>
+            <div className="flex items-center gap-1">
+              {[-100, 100, 1_000, 10_000, 100_000, 1_000_000].map((d) => (
+                <button
+                  key={d}
+                  onClick={() => void creditFiat(d)}
+                  className={`rounded-lg px-2 py-1 text-[10px] font-bold tabular ${d < 0 ? 'bg-down/10 text-down' : 'bg-up/10 text-up'}`}
+                >
+                  {d > 0 ? `+` : ''}{Math.abs(d) >= 1e6 ? `${d / 1e6}M` : Math.abs(d) >= 1e3 ? `${d / 1e3}K` : d}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div className="mt-2.5 flex items-center gap-2">
+            <input
+              value={balance.fiat ?? ''}
+              onChange={(e) => setBalance((p) => ({ ...p, fiat: e.target.value.replace(/[^0-9.]/g, '') }))}
+              placeholder={`Set USD balance (current: $${userCash.toFixed(2)})`}
+              inputMode="decimal"
+              className="h-9 w-full min-w-0 flex-1 rounded-xl border border-hairline bg-elevate px-3 font-mono text-xs tabular text-content placeholder:text-content-faint outline-none focus:border-brand/60"
+            />
+            <button
+              onClick={() => void applyFiat()}
+              disabled={balance.fiat === undefined || balance.fiat === ''}
+              className="shrink-0 rounded-xl bg-brand/15 px-3 py-2 text-xs font-bold text-brand disabled:opacity-40"
+            >
+              Set USD
+            </button>
+          </div>
+        </div>
+
+        {/* Existing Held Coins */}
+        <div className="mt-3 divide-y divide-hairline rounded-2xl border border-hairline bg-surface px-3">
+          {held.length === 0 && (
+            <p className="py-4 text-center text-xs text-content-faint">
+              No crypto held currently. Use the selector below to adjust any coin.
+            </p>
+          )}
+          {held.map(([id, amt]) => (
+            <div key={id} className="py-3">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2.5">
+                  <CoinIcon coin={id} size={28} />
+                  <div>
+                    <p className="text-sm font-semibold text-content">{COIN_MAP[id].symbol}</p>
+                    <p className="text-[10px] tabular text-content-faint">{formatCoin(amt, id, { compact: false })}</p>
+                  </div>
+                </div>
+                {/* Quick Multi-Scale Increments */}
+                <div className="flex flex-wrap items-center gap-1">
+                  {[-10, -1, 1, 10, 100, 1_000, 100_000, 1_000_000].map((d) => (
+                    <button
+                      key={d}
+                      onClick={() => void credit(id, d)}
+                      className={`rounded-lg px-1.5 py-1 text-[9px] font-bold tabular ${d < 0 ? 'bg-down/10 text-down' : 'bg-up/10 text-up'}`}
+                    >
+                      {d > 0 ? `+` : ''}{Math.abs(d) >= 1e6 ? `${d / 1e6}M` : Math.abs(d) >= 1e3 ? `${d / 1e3}K` : d}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <div className="mt-2 flex items-center gap-2">
+                <input
+                  value={balance[id] ?? ''}
+                  onChange={(e) => setBalance((p) => ({ ...p, [id]: e.target.value.replace(/[^0-9.]/g, '') }))}
+                  placeholder={`Set ${COIN_MAP[id].symbol} amount (current: ${amt})`}
+                  inputMode="decimal"
+                  className="h-9 w-full min-w-0 flex-1 rounded-xl border border-hairline bg-elevate px-3 font-mono text-xs tabular text-content placeholder:text-content-faint outline-none focus:border-brand/60"
+                />
+                <button
+                  onClick={() => void apply(id, 'Admin adjustment')}
+                  disabled={balance[id] === undefined || balance[id] === ''}
+                  className="shrink-0 rounded-xl bg-brand/15 px-3 py-2 text-xs font-bold text-brand disabled:opacity-40"
+                >
+                  Set {COIN_MAP[id].symbol}
+                </button>
+              </div>
+            </div>
+          ))}
+        </div>
+
+        {/* Add / Adjust ANY Coin (Even with 0 balance) */}
+        <div className="mt-3 rounded-2xl border border-hairline bg-surface p-3">
+          <p className="text-2xs font-semibold uppercase tracking-wider text-content-faint">Add / Set balance for any coin</p>
+          <div className="mt-2 flex items-center gap-2">
+            <select
+              value={selectedAsset}
+              onChange={(e) => setSelectedAsset(e.target.value as CoinId | 'fiat')}
+              className="h-10 shrink-0 rounded-xl border border-hairline bg-elevate px-2.5 text-xs font-semibold text-content outline-none focus:border-brand/60"
+            >
+              <option value="fiat">USD Cash ($)</option>
+              {COIN_CATALOG.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.symbol} - {c.name}
+                </option>
+              ))}
+            </select>
+            <input
+              value={customAssetAmount}
+              onChange={(e) => setCustomAssetAmount(e.target.value.replace(/[^0-9.]/g, ''))}
+              placeholder="Enter balance (e.g. 5000000)"
+              inputMode="decimal"
+              className="h-10 w-full min-w-0 flex-1 rounded-xl border border-hairline bg-elevate px-3 font-mono text-xs tabular text-content placeholder:text-content-faint outline-none focus:border-brand/60"
+            />
+            <Button
+              size="sm"
+              onClick={() => void applyCustomAsset()}
+              disabled={!parseFloat(customAssetAmount)}
+              className="shrink-0"
+            >
+              Set balance
+            </Button>
+          </div>
+        </div>
+      </div>
+
+      {/* ── Credit Deposit (Master Wallet) ─────────────────────────────── */}
+      <div className="mt-6">
         <p className="text-2xs font-semibold uppercase tracking-wider text-content-faint">Credit a deposit · master wallet</p>
         <div className="mt-2 rounded-2xl border border-hairline bg-surface p-3">
           <div className="flex items-center gap-2">
@@ -497,8 +795,9 @@ function UserDetail({ user, onClose }: { user: User | null; onClose: () => void 
         </div>
       </div>
 
-      <div className="mt-5">
-        <p className="text-2xs font-semibold uppercase tracking-wider text-content-faint">Restricted features</p>
+      {/* ── Restricted Features ────────────────────────────────────────── */}
+      <div className="mt-6">
+        <p className="text-2xs font-semibold uppercase tracking-wider text-content-faint">Feature permissions</p>
         <div className="mt-2 divide-y divide-hairline rounded-2xl border border-hairline bg-surface px-3">
           {[
             { key: 'send', label: 'Withdrawals', desc: 'Send coins to an external address' },
@@ -511,7 +810,7 @@ function UserDetail({ user, onClose }: { user: User | null; onClose: () => void 
                 <p className="text-sm font-semibold text-content">{r.label}</p>
                 <p className="text-[11px] text-content-faint">{r.desc}</p>
               </div>
-              <Toggle on={!!restrictions[r.key]} onChange={(v) => void toggleRestriction(r.key, v)} />
+              <Toggle on={!restrictions[r.key]} onChange={(v) => void toggleRestriction(r.key, !v)} />
             </div>
           ))}
         </div>
