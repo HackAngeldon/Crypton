@@ -173,9 +173,10 @@ if (resetCode) {
   console.log("  (reset-pin skipped — code delivered by email, not returned)");
 }
 
+const currentPin = resetCode ? "112233" : "888888";
 r = await req("POST", "/admin/restriction", { userId, key: "swap", value: true }, atok);
 ok(r.status === 200, "admin restricts swaps");
-r = await req("POST", "/swap", { from: "bitcoin", to: "tether", amount: 0.001, rate: 64000, priceFrom: 64000, priceTo: 1, pin: "112233" }, token);
+r = await req("POST", "/swap", { from: "bitcoin", to: "tether", amount: 0.001, rate: 64000, priceFrom: 64000, priceTo: 1, pin: currentPin }, token);
 ok(r.status === 400 && /restricted/.test(r.data.error ?? ""), "restricted user cannot swap");
 
 console.log("live support");

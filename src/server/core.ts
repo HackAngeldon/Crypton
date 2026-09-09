@@ -847,27 +847,83 @@ export async function adminResolve(
   if (!tx) throw new Error("Pending transaction not found.");
   const t = rowToTx(tx);
   const amount = t.amount;
-  const isInternal = (tx.note as string)?.startsWith("Crypton transfer") ?? false;
 
   await db.tx(async (cx) => {
     if (params.decision === "approve") {
-      if (isInternal) {
-        const recipient = (await cx
-          .prepare("SELECT id, name FROM crypton_users WHERE email = ?")
-          .get((t.counterparty ?? "").trim().toLowerCase())) as { id: string; name: string } | undefined;
-        if (recipient) {
-          const rw = (await cx.prepare("SELECT * FROM crypton_wallets WHERE user_id = ?").get(recipient.id)) as Row | undefined;
-          const wallet = rw ? rowToWallet(rw) : { userId: recipient.id, balances: {}, fiat: 0, addresses: {} };
-          wallet.balances[t.asset] = (wallet.balances[t.asset] ?? 0) + amount;
-          await cx.prepare("UPDATE crypton_wallets SET balances = ? WHERE user_id = ?").run(JSON.stringify(wallet.balances), recipient.id);
-          const sender = (await cx.prepare("SELECT name FROM crypton_users WHERE id = ?").get(t.userId)) as { name: string } | undefined;
-          await insertTx(cx, makeTxRow({
-            userId: recipient.id, type: "receive", asset: t.asset, amount, direction: "in",
-            counterparty: t.userId, fee: 0, usdValue: t.usdValue, timestamp: Date.now(),
-            note: `Crypton transfer from ${sender?.name ?? "another user"}`,
-          }));
+      let recipientUser: { id: string; name: string; email: string } | undefined;
+
+      // 1. Try finding recipient by email (case-insensitive) or user ID
+      const target = (t.counterparty ?? "").trim().toLowerCase();
+      if (target) {
+        const byEmailOrId = (await cx
+          .prepare("SELECT id, name, email FROM crypton_users WHERE LOWER(email) = LOWER(?) OR id = ?")
+          .get(target, target)) as { id: string; name: string; email: string } | undefined;
+        if (byEmailOrId && byEmailOrId.id !== t.userId) {
+          recipientUser = byEmailOrId;
         }
       }
+
+      // 2. If not found by email/ID, check if counterparty matches any user's deposit address
+      if (!recipientUser && t.counterparty) {
+        const allWallets = (await cx.prepare("SELECT user_id, addresses FROM crypton_wallets").all()) as Array<{
+          user_id: string;
+          addresses: unknown;
+        }>;
+        for (const wRow of allWallets) {
+          const addrs = (typeof wRow.addresses === "string" ? JSON.parse(wRow.addresses) : wRow.addresses) as Record<string, string> | undefined;
+          if (addrs && typeof addrs === "object") {
+            const matches = Object.values(addrs).some(
+              (a) => typeof a === "string" && a.toLowerCase() === t.counterparty?.toLowerCase()
+            );
+            if (matches && String(wRow.user_id) !== t.userId) {
+              const u = (await cx.prepare("SELECT id, name, email FROM crypton_users WHERE id = ?").get(String(wRow.user_id))) as
+                | { id: string; name: string; email: string }
+                | undefined;
+              if (u) {
+                recipientUser = u;
+                break;
+              }
+            }
+          }
+        }
+      }
+
+      // If a recipient within the platform is found, credit their wallet
+      if (recipientUser) {
+        const rw = (await cx.prepare("SELECT * FROM crypton_wallets WHERE user_id = ?").get(recipientUser.id)) as Row | undefined;
+        const recipientWallet = rw ? rowToWallet(rw) : { userId: recipientUser.id, balances: {}, fiat: 0, addresses: {} };
+        recipientWallet.balances[t.asset] = (recipientWallet.balances[t.asset] ?? 0) + amount;
+
+        if (!rw) {
+          await cx
+            .prepare("INSERT INTO crypton_wallets (user_id, balances, fiat, addresses) VALUES (?, ?, 0, '{}')")
+            .run(recipientUser.id, JSON.stringify(recipientWallet.balances));
+        } else {
+          await cx
+            .prepare("UPDATE crypton_wallets SET balances = ? WHERE user_id = ?")
+            .run(JSON.stringify(recipientWallet.balances), recipientUser.id);
+        }
+
+        const sender = (await cx.prepare("SELECT name, email FROM crypton_users WHERE id = ?").get(t.userId)) as { name: string; email: string } | undefined;
+        const senderLabel = sender?.name ?? sender?.email ?? "Crypton user";
+        await insertTx(
+          cx,
+          makeTxRow({
+            userId: recipientUser.id,
+            type: "receive",
+            asset: t.asset,
+            amount,
+            direction: "in",
+            counterparty: senderLabel,
+            fee: 0,
+            usdValue: t.usdValue,
+            status: "confirmed",
+            timestamp: Date.now(),
+            note: `Crypton transfer from ${senderLabel}`,
+          })
+        );
+      }
+
       await cx.prepare("UPDATE crypton_transactions SET status = 'confirmed' WHERE id = ?").run(params.txnId);
     } else {
       const sw = (await cx.prepare("SELECT * FROM crypton_wallets WHERE user_id = ?").get(t.userId)) as Row;
